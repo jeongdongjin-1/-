@@ -290,6 +290,26 @@
   .linkcard .lc-t { display:flex; flex-direction:column; min-width:0; }
   .linkcard .lc-d { font-size:12px; font-weight:700; color:var(--accent); }
   .linkcard .lc-u { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* 미디어 썸네일 카드 (클릭 → 중앙 모달) */
+  .media-card { position:relative; margin-top:8px; max-width:320px; border-radius:12px; overflow:hidden; cursor:pointer; border:1px solid var(--border); }
+  .media-card.video { aspect-ratio:16/9; background:#000; display:flex; align-items:center; justify-content:center; }
+  .media-card .mc-thumb { width:100%; height:100%; object-fit:cover; display:block; }
+  .media-card .mc-play { position:absolute; width:54px; height:54px; border-radius:50%; background:rgba(0,0,0,.55); color:#fff; font-size:20px; display:flex; align-items:center; justify-content:center; transition:background .15s; }
+  .media-card:hover .mc-play { background:var(--accent); }
+  .media-card.filevid { aspect-ratio:auto; background:#0f172a; color:#cfe0ff; padding:13px 14px; gap:9px; justify-content:flex-start; font-size:13px; }
+  .media-card.filevid .mc-play { position:static; width:32px; height:32px; font-size:14px; flex:0 0 auto; }
+  /* 중앙 미디어 모달 */
+  .modal-overlay { position:fixed; inset:0; z-index:1000; background:rgba(17,31,40,.62); display:flex; align-items:center; justify-content:center; padding:16px; }
+  .modal-box { background:var(--card); border-radius:16px; width:min(860px,96vw); max-height:90vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 24px 70px rgba(0,0,0,.35); }
+  .modal-head { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px 14px; border-bottom:1px solid var(--border); }
+  .modal-head .mh-title { font-size:13px; font-weight:700; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .modal-head .mh-act { display:flex; gap:8px; align-items:center; flex:0 0 auto; }
+  .modal-head a.mh-open { font-size:13px; font-weight:600; text-decoration:none; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:6px 11px; color:var(--accent); }
+  .modal-head button.mh-close { background:var(--bg); border:1px solid var(--border); border-radius:8px; width:32px; height:32px; font-size:15px; color:var(--muted); cursor:pointer; }
+  .modal-body { background:#000; }
+  .modal-body .mv-frame { width:100%; aspect-ratio:16/9; border:0; display:block; max-height:78vh; }
+  .modal-body iframe.web { width:100%; height:74vh; border:0; background:#fff; display:block; }
+  .modal-note { background:var(--card); color:var(--muted); font-size:12px; padding:8px 14px; }
   .chat-input { max-width:1100px; margin:12px auto 0; display:flex; gap:8px; }
   .chat-input input { flex:1; }
   .chat-setup { max-width:760px; margin:0 auto; background:var(--card); border:1px solid var(--border); border-radius:16px; padding:20px; box-shadow:var(--shadow); }
@@ -535,6 +555,19 @@
         ※ 로그인·가입 없이 바로 쓰는 익명 공개 토론방(공개 MQTT 브로커)입니다. 최근 100개 메시지만 보관되며, 누구나 볼 수 있으니 개인정보·비방·욕설·투자권유는 삼가주세요.</p>
     </div>
   </div><!-- /tab-chat -->
+
+  <div id="mediaModal" class="modal-overlay" style="display:none">
+    <div class="modal-box">
+      <div class="modal-head">
+        <span class="mh-title" id="modalTitle"></span>
+        <span class="mh-act">
+          <a class="mh-open" id="modalOpen" target="_blank" rel="noopener noreferrer">↗ 새 탭에서 열기</a>
+          <button class="mh-close" id="modalClose" aria-label="닫기">✕</button>
+        </span>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
 
   <footer>
     <p>※ <b>키를 비워두면</b> 가입·인증키 없이 <code>open.er-api.com</code>(원화 기준, 하루 1회 갱신)을 사용합니다.</p>
@@ -1437,18 +1470,18 @@
     const m = url.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
     return m ? m[1] : null;
   }
+  function hostOf(url) { try { return new URL(url).hostname.replace(/^www\./, ""); } catch (e) { return url; } }
   function linkCard(url) {
-    let domain = url;
-    try { domain = new URL(url).hostname.replace(/^www\./, ""); } catch (e) {}
-    return `<a class="linkcard" href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">` +
+    const domain = hostOf(url);
+    return `<a class="linkcard" data-media="web" data-url="${esc(url)}" href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">` +
       `<img src="https://www.google.com/s2/favicons?domain=${esc(domain)}&sz=64" alt="" loading="lazy" />` +
       `<span class="lc-t"><span class="lc-d">${esc(domain)}</span><span class="lc-u">${esc(url)}</span></span></a>`;
   }
-  // 메시지 텍스트 → URL 인식해 링크/임베드 렌더 (나머지는 이스케이프)
+  // 메시지 텍스트 → URL 인식. 영상/링크는 클릭 시 중앙 모달에서 재생/표시.
   function renderContent(raw) {
     const text = raw || "";
     const re = /(https?:\/\/[^\s<]+)/g;
-    let html = "", embeds = "", last = 0, m;
+    let html = "", last = 0, m;
     while ((m = re.exec(text)) !== null) {
       html += esc(text.slice(last, m.index));
       last = m.index + m[0].length;
@@ -1457,19 +1490,39 @@
       if (trail) url = url.slice(0, -trail.length);
       const yt = youtubeId(url);
       if (yt) {
-        html += `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">${esc(url)}</a>`;
-        embeds += `<div class="embed-yt"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
+        html += `<div class="media-card video" role="button" tabindex="0" data-media="yt" data-id="${yt}" data-url="${esc(url)}" title="클릭하면 중앙에서 재생">` +
+          `<img class="mc-thumb" src="https://img.youtube.com/vi/${yt}/hqdefault.jpg" alt="" loading="lazy" /><span class="mc-play">▶</span></div>`;
       } else if (/\.(mp4|webm|ogg)(\?.*)?$/i.test(url)) {
-        html += linkCard(url);
-        embeds += `<video class="embed-vid" src="${esc(url)}" controls preload="metadata"></video>`;
+        html += `<div class="media-card filevid" role="button" tabindex="0" data-media="vid" data-url="${esc(url)}" title="클릭하면 중앙에서 재생">` +
+          `<span class="mc-play">▶</span><span>${esc(hostOf(url))} 동영상 재생</span></div>`;
       } else {
         html += linkCard(url);
       }
       html += esc(trail);
     }
     html += esc(text.slice(last));
-    return html + embeds;
+    return html;
   }
+
+  // 중앙 미디어 모달
+  function openMedia(type, data) {
+    const ov = $("mediaModal"), body = $("modalBody"), title = $("modalTitle"), open = $("modalOpen");
+    body.innerHTML = "";
+    if (type === "yt") {
+      title.textContent = "YouTube"; open.href = "https://www.youtube.com/watch?v=" + data.id;
+      body.style.background = "#000";
+      body.innerHTML = `<iframe class="mv-frame" src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
+    } else if (type === "vid") {
+      title.textContent = hostOf(data.url); open.href = data.url; body.style.background = "#000";
+      body.innerHTML = `<video class="mv-frame" src="${esc(data.url)}" controls autoplay playsinline></video>`;
+    } else {
+      title.textContent = hostOf(data.url); open.href = data.url; body.style.background = "var(--card)";
+      body.innerHTML = `<iframe class="web" src="${esc(data.url)}" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-popups allow-forms"></iframe>` +
+        `<div class="modal-note">사이트가 임베드를 막아 화면이 비어 보이면 위 <b>↗ 새 탭에서 열기</b>를 눌러주세요.</div>`;
+    }
+    ov.style.display = "flex";
+  }
+  function closeMedia() { $("modalBody").innerHTML = ""; $("mediaModal").style.display = "none"; }
 
   function renderMsg(m) {
     const mine = m.uid === myId;
@@ -1521,6 +1574,22 @@
     if (t === "chat") initChat();
   };
   document.getElementById("worldRefresh").onclick = () => loadWorld(true);
+
+  // 토론방 미디어 카드 클릭 → 중앙 모달 (링크 이동 대신 그 자리에서 재생/표시)
+  $("chatMessages").addEventListener("click", (e) => {
+    const el = e.target.closest("[data-media]");
+    if (!el) return;
+    e.preventDefault();
+    openMedia(el.dataset.media, { id: el.dataset.id, url: el.dataset.url });
+  });
+  $("chatMessages").addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" && e.key !== " ") return;
+    const el = e.target.closest("[data-media]");
+    if (el) { e.preventDefault(); openMedia(el.dataset.media, { id: el.dataset.id, url: el.dataset.url }); }
+  });
+  $("modalClose").onclick = closeMedia;
+  $("mediaModal").addEventListener("click", (e) => { if (e.target.id === "mediaModal") closeMedia(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("mediaModal").style.display !== "none") closeMedia(); });
 
   // 첫 진입 빈 화면 대신 스켈레톤 표시 (데이터 오면 render()가 교체)
   gridEl.innerHTML = Array.from({ length: 8 }, () =>

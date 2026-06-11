@@ -504,7 +504,7 @@
         <button type="submit" id="chatSend">전송</button>
       </form>
       <p class="news-loading" style="font-size:12px">
-        ※ 로그인 없는 익명 공개 토론방입니다. 누구나 볼 수 있으니 개인정보·비방·욕설은 삼가주세요. 투자 권유·허위정보 주의.</p>
+        ※ 로그인·가입 없이 바로 쓰는 익명 공개 토론방(공개 MQTT 브로커)입니다. 최근 100개 메시지만 보관되며, 누구나 볼 수 있으니 개인정보·비방·욕설·투자권유는 삼가주세요.</p>
     </div>
   </div><!-- /tab-chat -->
 
@@ -1248,68 +1248,39 @@
     }
   }
 
-  /* ===== 토론방 (Supabase 익명 실시간) ===== */
-  // ↓↓↓ 본인 Supabase 프로젝트 값으로 교체 (Project Settings → API)
-  const SUPABASE_URL = "";       // 예: https://xxxxxxxx.supabase.co
-  const SUPABASE_ANON_KEY = "";  // anon public 키
-  const chatConfigured = () => /^https:\/\/.+\.supabase\.co/.test(SUPABASE_URL) && SUPABASE_ANON_KEY.length > 30;
-
-  let sb = null, chatChannel = "fx", chatInited = false, chatSub = null, chatLibLoading = null;
+  /* ===== 토론방 (공개 MQTT 브로커 · 로그인/설정 불필요, 즉시 동작) ===== */
+  const MQTT_URL = "wss://broker.hivemq.com:8884/mqtt"; // 공개 브로커
+  const TOPIC_BASE = "krwdash/v1";                       // 공개 토픽 네임스페이스
   const esc = (s) => (s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-  function ensureSupabaseLib() {
-    if (window.supabase) return Promise.resolve(true);
+  let mqc = null, chatChannel = "fx", chatInited = false, chatLibLoading = null, chatStatus = "연결 중…";
+  const myId = "u" + Math.random().toString(36).slice(2, 9);
+  const chatLists = { fx: [], world: [] };
+  const seenIds = { fx: new Set(), world: new Set() };
+  const ctopic = (ch, kind) => `${TOPIC_BASE}/${ch}/${kind}`;
+
+  function ensureMqttLib() {
+    if (window.mqtt) return Promise.resolve(true);
     if (chatLibLoading) return chatLibLoading;
     chatLibLoading = new Promise((res) => {
       const s = document.createElement("script");
-      s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+      s.src = "https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js";
       s.onload = () => res(true); s.onerror = () => res(false);
       document.head.appendChild(s);
     });
     return chatLibLoading;
   }
 
-  function chatSetupHtml() {
-    return `<div class="chat-setup">
-      <h3>💬 토론방 연결이 필요합니다</h3>
-      <p style="font-size:14px;color:var(--muted)">무료 Supabase 프로젝트를 연결하면 로그인 없는 <b>실시간 익명 토론방</b>이 열립니다.</p>
-      <ol>
-        <li><a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer">supabase.com</a> 에서 무료 프로젝트 생성</li>
-        <li>좌측 <b>SQL Editor</b>에 아래 SQL 붙여넣고 실행:</li>
-      </ol>
-      <pre>create table messages (
-  id bigint generated always as identity primary key,
-  created_at timestamptz default now(),
-  channel text not null default 'fx',
-  nickname text not null,
-  content text not null
-);
-alter table messages enable row level security;
-create policy "read all"   on messages for select using (true);
-create policy "insert all" on messages for insert with check (
-  char_length(content) between 1 and 500
-  and char_length(nickname) between 1 and 20
-  and channel in ('fx','world')
-);
-alter publication supabase_realtime add table messages;</pre>
-      <ol start="3">
-        <li><b>Project Settings → API</b>에서 <code>Project URL</code> 과 <code>anon public</code> 키 복사</li>
-        <li>두 값을 알려주시면 코드에 넣어 배포해 드립니다.</li>
-      </ol>
-    </div>`;
-  }
-
   async function initChat() {
-    if (!chatConfigured()) {
-      $("chatSetup").style.display = ""; $("chatRoom").style.display = "none";
-      $("chatSetup").innerHTML = chatSetupHtml();
+    $("chatSetup").style.display = "none";
+    $("chatRoom").style.display = "";
+    if (chatInited) { renderChat(); return; }
+
+    const ok = await ensureMqttLib();
+    if (!ok || !window.mqtt) {
+      $("chatMessages").innerHTML = `<div class="chat-empty">채팅 라이브러리를 불러오지 못했습니다(인터넷 확인).</div>`;
       return;
     }
-    $("chatSetup").style.display = "none"; $("chatRoom").style.display = "";
-    if (chatInited) return;
-    const ok = await ensureSupabaseLib();
-    if (!ok || !window.supabase) { $("chatMessages").innerHTML = `<div class="chat-empty">채팅 라이브러리를 불러오지 못했습니다.</div>`; return; }
-    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const nick = $("chatNick");
     nick.value = localStorage.getItem("chatNick") || ("익명" + Math.floor(1000 + Math.random() * 9000));
@@ -1317,59 +1288,91 @@ alter publication supabase_realtime add table messages;</pre>
 
     document.querySelectorAll("#chatChannels .chip").forEach((b) => {
       b.onclick = () => {
+        if (chatChannel === b.dataset.ch) return;
         chatChannel = b.dataset.ch;
         document.querySelectorAll("#chatChannels .chip").forEach((x) => x.classList.toggle("active", x === b));
-        loadChat(); subscribeChat();
+        if (mqc && mqc.connected) resubscribeChat();
+        renderChat();
       };
     });
     $("chatForm").onsubmit = sendChat;
     chatInited = true;
-    await loadChat();
-    subscribeChat();
+    renderChat();
+
+    chatStatus = "연결 중…"; renderChat();
+    mqc = window.mqtt.connect(MQTT_URL, { clientId: "krwdash-" + myId, reconnectPeriod: 3000, connectTimeout: 8000, clean: true });
+    mqc.on("connect", () => { chatStatus = ""; subscribeChat(chatChannel); renderChat(); });
+    mqc.on("reconnect", () => { chatStatus = "재연결 중…"; renderChat(); });
+    mqc.on("error", () => { chatStatus = "연결 오류 — 재시도 중…"; renderChat(); });
+    mqc.on("close", () => { chatStatus = "연결 끊김 — 재시도 중…"; renderChat(); });
+    mqc.on("message", onChatMessage);
+  }
+
+  function subscribeChat(ch) { mqc.subscribe(ctopic(ch, "msg")); mqc.subscribe(ctopic(ch, "snap")); }
+  function resubscribeChat() {
+    ["fx", "world"].forEach((c) => { if (c !== chatChannel) { mqc.unsubscribe(ctopic(c, "msg")); mqc.unsubscribe(ctopic(c, "snap")); } });
+    subscribeChat(chatChannel);
+  }
+
+  function onChatMessage(t, payload) {
+    let data; try { data = JSON.parse(payload.toString()); } catch (e) { return; }
+    const [, , ch, kind] = t.split("/");
+    if (!chatLists[ch]) return;
+    if (kind === "snap" && Array.isArray(data)) {
+      data.forEach((m) => addChatMsg(ch, m));
+    } else if (kind === "msg") {
+      const isNew = addChatMsg(ch, data);
+      if (isNew && data.uid === myId) publishSnapshot(ch); // 내가 보낸 글 → 히스토리 갱신
+    }
+    if (ch === chatChannel) renderChat();
+  }
+
+  function addChatMsg(ch, m) {
+    if (!m || !m.id || seenIds[ch].has(m.id)) return false;
+    seenIds[ch].add(m.id);
+    chatLists[ch].push(m);
+    chatLists[ch].sort((a, b) => a.t - b.t);
+    if (chatLists[ch].length > 100) chatLists[ch] = chatLists[ch].slice(-100);
+    return true;
+  }
+
+  function publishSnapshot(ch) {
+    if (!mqc || !mqc.connected) return;
+    mqc.publish(ctopic(ch, "snap"), JSON.stringify(chatLists[ch].slice(-100)), { retain: true, qos: 0 });
   }
 
   function renderMsg(m) {
-    const mine = (localStorage.getItem("chatNick") || "") === m.nickname;
-    const hm = new Date(m.created_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    const mine = m.uid === myId;
+    const hm = new Date(m.t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
     return `<div class="cmsg ${mine ? "mine" : ""}">
-      <div class="head"><b>${esc(m.nickname)}</b> · ${hm}</div>
-      <div class="bubble">${esc(m.content)}</div></div>`;
+      <div class="head"><b>${esc(m.nick)}</b> · ${hm}</div>
+      <div class="bubble">${esc(m.text)}</div></div>`;
   }
 
-  async function loadChat() {
+  function renderChat() {
     const box = $("chatMessages");
-    box.innerHTML = `<div class="chat-empty">불러오는 중…</div>`;
-    const { data, error } = await sb.from("messages").select("*").eq("channel", chatChannel).order("created_at", { ascending: true }).limit(100);
-    if (error) { box.innerHTML = `<div class="chat-empty">메시지를 불러오지 못했습니다.<br>${esc(error.message)}</div>`; return; }
-    if (!data.length) { box.innerHTML = `<div class="chat-empty">첫 메시지를 남겨보세요 💬</div>`; return; }
-    box.innerHTML = data.map(renderMsg).join("");
-    box.scrollTop = box.scrollHeight;
+    const list = chatLists[chatChannel] || [];
+    if (!list.length) {
+      box.innerHTML = `<div class="chat-empty">${chatStatus || "첫 메시지를 남겨보세요 💬"}</div>`;
+      return;
+    }
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+    box.innerHTML = list.map(renderMsg).join("");
+    if (atBottom) box.scrollTop = box.scrollHeight;
   }
 
-  function subscribeChat() {
-    if (chatSub) sb.removeChannel(chatSub);
-    chatSub = sb.channel("room-" + chatChannel)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `channel=eq.${chatChannel}` },
-        (p) => {
-          const box = $("chatMessages");
-          const empty = box.querySelector(".chat-empty"); if (empty) box.innerHTML = "";
-          box.insertAdjacentHTML("beforeend", renderMsg(p.new));
-          box.scrollTop = box.scrollHeight;
-        })
-      .subscribe();
-  }
-
-  async function sendChat(e) {
+  function sendChat(e) {
     e.preventDefault();
     const text = $("chatText").value.trim();
     if (!text) return;
+    if (!mqc || !mqc.connected) { alert("아직 연결 중입니다. 잠시 후 다시 시도해 주세요."); return; }
     const nick = ($("chatNick").value.trim() || "익명").slice(0, 20);
     localStorage.setItem("chatNick", nick);
-    $("chatSend").disabled = true;
-    const { error } = await sb.from("messages").insert({ channel: chatChannel, nickname: nick, content: text.slice(0, 500) });
-    $("chatSend").disabled = false;
-    if (error) { alert("전송 실패: " + error.message); return; }
-    $("chatText").value = ""; $("chatText").focus();
+    const m = { id: myId + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 5), uid: myId, nick, text: text.slice(0, 500), t: Date.now() };
+    mqc.publish(ctopic(chatChannel, "msg"), JSON.stringify(m), { qos: 0 });
+    if (addChatMsg(chatChannel, m)) { renderChat(); publishSnapshot(chatChannel); } // 즉시 표시 + 히스토리 갱신
+    $("chatText").value = "";
+    $("chatText").focus();
   }
 
   window.switchTab = function (t) {

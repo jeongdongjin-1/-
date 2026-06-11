@@ -263,6 +263,21 @@
   .cmsg.mine .head { text-align:right; }
   .cmsg.mine .bubble { background:#e7f0ff; border-color:#cfe0ff; border-radius:14px 4px 14px 14px; }
   .chat-empty { margin:auto; color:var(--muted); font-size:14px; }
+  /* 접속자 도식화 */
+  .chat-presence { max-width:1100px; margin:0 auto 12px; display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+    background:var(--card); border:1px solid var(--border); border-radius:14px; padding:11px 16px; box-shadow:var(--shadow); }
+  .cp-count { font-size:15px; font-weight:700; display:flex; align-items:center; gap:8px; }
+  .cp-count b { color:var(--accent); }
+  .cp-dot { width:9px; height:9px; border-radius:50%; background:#22c55e; animation:ppulse 1.8s infinite; flex:0 0 auto; }
+  @keyframes ppulse { 0%{box-shadow:0 0 0 0 rgba(34,197,94,.45)} 70%{box-shadow:0 0 0 7px rgba(34,197,94,0)} 100%{box-shadow:0 0 0 0 rgba(34,197,94,0)} }
+  .cp-avatars { display:flex; align-items:center; }
+  .cp-avatars .av { width:28px; height:28px; border-radius:50%; margin-left:-7px; border:2px solid var(--card);
+    display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; color:#fff; }
+  .cp-avatars .av:first-child { margin-left:0; }
+  .cp-more { font-size:12px; color:var(--muted); margin-left:8px; }
+  .cp-breakdown { margin-left:auto; display:flex; gap:8px; }
+  .cp-pill { font-size:12.5px; color:var(--muted); background:var(--bg); border:1px solid var(--border); border-radius:999px; padding:4px 11px; }
+  .cp-pill b { color:var(--text); }
   .chat-input { max-width:1100px; margin:12px auto 0; display:flex; gap:8px; }
   .chat-input input { flex:1; }
   .chat-setup { max-width:760px; margin:0 auto; background:var(--card); border:1px solid var(--border); border-radius:16px; padding:20px; box-shadow:var(--shadow); }
@@ -498,6 +513,7 @@
         </div>
         <input id="chatNick" placeholder="닉네임" maxlength="20" />
       </div>
+      <div class="chat-presence" id="chatPresence"></div>
       <div class="chat-messages" id="chatMessages"></div>
       <form class="chat-input" id="chatForm" autocomplete="off">
         <input id="chatText" placeholder="메시지를 입력하세요 (최대 500자)" maxlength="500" />
@@ -1258,6 +1274,12 @@
   const chatLists = { fx: [], world: [] };
   const seenIds = { fx: new Set(), world: new Set() };
   const ctopic = (ch, kind) => `${TOPIC_BASE}/${ch}/${kind}`;
+  // 접속자(presence) 집계
+  const PRESENCE_TOPIC = `${TOPIC_BASE}/presence`;
+  const PRESENCE_TTL = 30000;        // 30초 내 하트비트 없으면 퇴장 처리
+  const presence = new Map();        // uid -> { nick, ch, t(lastSeen) }
+  let presenceTimer = null, pruneTimer = null;
+  const curNick = () => ($("chatNick").value.trim() || "익명").slice(0, 20);
 
   function ensureMqttLib() {
     if (window.mqtt) return Promise.resolve(true);
@@ -1291,21 +1313,77 @@
         if (chatChannel === b.dataset.ch) return;
         chatChannel = b.dataset.ch;
         document.querySelectorAll("#chatChannels .chip").forEach((x) => x.classList.toggle("active", x === b));
-        if (mqc && mqc.connected) resubscribeChat();
+        if (mqc && mqc.connected) { resubscribeChat(); publishPresence(); }
         renderChat();
       };
     });
     $("chatForm").onsubmit = sendChat;
     chatInited = true;
-    renderChat();
+    renderChat(); renderPresence();
 
     chatStatus = "연결 중…"; renderChat();
-    mqc = window.mqtt.connect(MQTT_URL, { clientId: "krwdash-" + myId, reconnectPeriod: 3000, connectTimeout: 8000, clean: true });
-    mqc.on("connect", () => { chatStatus = ""; subscribeChat(chatChannel); renderChat(); });
+    const will = { topic: PRESENCE_TOPIC, payload: JSON.stringify({ uid: myId, leave: true }), qos: 0, retain: false };
+    mqc = window.mqtt.connect(MQTT_URL, { clientId: "krwdash-" + myId, reconnectPeriod: 3000, connectTimeout: 8000, clean: true, will });
+    mqc.on("connect", () => {
+      chatStatus = ""; subscribeChat(chatChannel);
+      mqc.subscribe(PRESENCE_TOPIC);
+      publishPresence();
+      if (!presenceTimer) presenceTimer = setInterval(publishPresence, 12000); // 하트비트
+      if (!pruneTimer) pruneTimer = setInterval(prunePresence, 5000);
+      renderChat();
+    });
     mqc.on("reconnect", () => { chatStatus = "재연결 중…"; renderChat(); });
     mqc.on("error", () => { chatStatus = "연결 오류 — 재시도 중…"; renderChat(); });
     mqc.on("close", () => { chatStatus = "연결 끊김 — 재시도 중…"; renderChat(); });
     mqc.on("message", onChatMessage);
+
+    // 탭 닫힘/이탈 시 즉시 퇴장 알림 (Last-Will 보강)
+    window.addEventListener("pagehide", () => {
+      try { if (mqc && mqc.connected) mqc.publish(PRESENCE_TOPIC, JSON.stringify({ uid: myId, leave: true }), { qos: 0 }); } catch (e) {}
+    });
+  }
+
+  function publishPresence() {
+    const rec = { nick: curNick(), ch: chatChannel, t: Date.now() };
+    presence.set(myId, rec); renderPresence();           // 내 자신 즉시 반영
+    if (mqc && mqc.connected) mqc.publish(PRESENCE_TOPIC, JSON.stringify({ uid: myId, ...rec }), { qos: 0 });
+  }
+
+  function handlePresence(data) {
+    if (!data || !data.uid) return;
+    if (data.leave) presence.delete(data.uid);
+    else presence.set(data.uid, { nick: data.nick, ch: data.ch, t: Date.now() });
+    renderPresence();
+  }
+
+  function prunePresence() {
+    const now = Date.now(); let changed = false;
+    for (const [uid, p] of presence) { if (now - p.t > PRESENCE_TTL) { presence.delete(uid); changed = true; } }
+    if (changed) renderPresence();
+  }
+
+  function avatarColor(seed) {
+    let h = 0; for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) % 360;
+    return `hsl(${h} 62% 52%)`;
+  }
+
+  function renderPresence() {
+    const el = $("chatPresence"); if (!el) return;
+    const now = Date.now();
+    const live = [...presence.entries()].filter(([, p]) => now - p.t < PRESENCE_TTL).map(([uid, p]) => ({ uid, ...p }));
+    const cur = live.filter((p) => p.ch === chatChannel);
+    const fx = live.filter((p) => p.ch === "fx").length;
+    const world = live.filter((p) => p.ch === "world").length;
+    const shown = cur.slice(0, 12);
+    const avatars = shown.map((p) => {
+      const ch = (p.nick || "익").trim().charAt(0) || "익";
+      return `<span class="av" style="background:${avatarColor(p.uid)}" title="${esc(p.nick)}">${esc(ch)}</span>`;
+    }).join("");
+    const more = cur.length > shown.length ? `<span class="cp-more">+${cur.length - shown.length}</span>` : "";
+    el.innerHTML =
+      `<div class="cp-count"><span class="cp-dot"></span>현재 채널 <b>${cur.length}</b>명 접속</div>` +
+      `<div class="cp-avatars">${avatars}</div>${more}` +
+      `<div class="cp-breakdown"><span class="cp-pill">💱 환율 <b>${fx}</b></span><span class="cp-pill">🌐 정세 <b>${world}</b></span></div>`;
   }
 
   function subscribeChat(ch) { mqc.subscribe(ctopic(ch, "msg")); mqc.subscribe(ctopic(ch, "snap")); }
@@ -1316,6 +1394,7 @@
 
   function onChatMessage(t, payload) {
     let data; try { data = JSON.parse(payload.toString()); } catch (e) { return; }
+    if (t === PRESENCE_TOPIC) { handlePresence(data); return; }
     const [, , ch, kind] = t.split("/");
     if (!chatLists[ch]) return;
     if (kind === "snap" && Array.isArray(data)) {

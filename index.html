@@ -278,6 +278,18 @@
   .cp-breakdown { margin-left:auto; display:flex; gap:8px; }
   .cp-pill { font-size:12.5px; color:var(--muted); background:var(--bg); border:1px solid var(--border); border-radius:999px; padding:4px 11px; }
   .cp-pill b { color:var(--text); }
+  /* 메시지 내 링크/임베드 */
+  .bubble a { color:var(--accent); word-break:break-all; }
+  .embed-yt { position:relative; width:100%; max-width:380px; aspect-ratio:16/9; margin-top:8px; border-radius:12px; overflow:hidden; background:#000; }
+  .embed-yt iframe { position:absolute; inset:0; width:100%; height:100%; border:0; }
+  .embed-vid { display:block; width:100%; max-width:380px; margin-top:8px; border-radius:12px; background:#000; }
+  .linkcard { display:flex; align-items:center; gap:9px; margin-top:8px; padding:9px 11px; max-width:380px;
+    background:var(--bg); border:1px solid var(--border); border-radius:12px; text-decoration:none; }
+  .linkcard:hover { border-color:var(--accent); }
+  .linkcard img { width:18px; height:18px; flex:0 0 auto; border-radius:4px; }
+  .linkcard .lc-t { display:flex; flex-direction:column; min-width:0; }
+  .linkcard .lc-d { font-size:12px; font-weight:700; color:var(--accent); }
+  .linkcard .lc-u { font-size:11px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .chat-input { max-width:1100px; margin:12px auto 0; display:flex; gap:8px; }
   .chat-input input { flex:1; }
   .chat-setup { max-width:760px; margin:0 auto; background:var(--card); border:1px solid var(--border); border-radius:16px; padding:20px; box-shadow:var(--shadow); }
@@ -516,7 +528,7 @@
       <div class="chat-presence" id="chatPresence"></div>
       <div class="chat-messages" id="chatMessages"></div>
       <form class="chat-input" id="chatForm" autocomplete="off">
-        <input id="chatText" placeholder="메시지를 입력하세요 (최대 500자)" maxlength="500" />
+        <input id="chatText" placeholder="메시지·뉴스 링크·유튜브 URL 공유 (최대 500자)" maxlength="500" />
         <button type="submit" id="chatSend">전송</button>
       </form>
       <p class="news-loading" style="font-size:12px">
@@ -1420,12 +1432,51 @@
     mqc.publish(ctopic(ch, "snap"), JSON.stringify(chatLists[ch].slice(-100)), { retain: true, qos: 0 });
   }
 
+  // 유튜브 영상 ID 추출 (watch/youtu.be/shorts/embed)
+  function youtubeId(url) {
+    const m = url.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+    return m ? m[1] : null;
+  }
+  function linkCard(url) {
+    let domain = url;
+    try { domain = new URL(url).hostname.replace(/^www\./, ""); } catch (e) {}
+    return `<a class="linkcard" href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">` +
+      `<img src="https://www.google.com/s2/favicons?domain=${esc(domain)}&sz=64" alt="" loading="lazy" />` +
+      `<span class="lc-t"><span class="lc-d">${esc(domain)}</span><span class="lc-u">${esc(url)}</span></span></a>`;
+  }
+  // 메시지 텍스트 → URL 인식해 링크/임베드 렌더 (나머지는 이스케이프)
+  function renderContent(raw) {
+    const text = raw || "";
+    const re = /(https?:\/\/[^\s<]+)/g;
+    let html = "", embeds = "", last = 0, m;
+    while ((m = re.exec(text)) !== null) {
+      html += esc(text.slice(last, m.index));
+      last = m.index + m[0].length;
+      let url = m[0];
+      const trail = (url.match(/[)\]}.,!?]+$/) || [""])[0]; // 끝 문장부호는 본문으로
+      if (trail) url = url.slice(0, -trail.length);
+      const yt = youtubeId(url);
+      if (yt) {
+        html += `<a href="${esc(url)}" target="_blank" rel="noopener noreferrer nofollow">${esc(url)}</a>`;
+        embeds += `<div class="embed-yt"><iframe src="https://www.youtube-nocookie.com/embed/${yt}" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
+      } else if (/\.(mp4|webm|ogg)(\?.*)?$/i.test(url)) {
+        html += linkCard(url);
+        embeds += `<video class="embed-vid" src="${esc(url)}" controls preload="metadata"></video>`;
+      } else {
+        html += linkCard(url);
+      }
+      html += esc(trail);
+    }
+    html += esc(text.slice(last));
+    return html + embeds;
+  }
+
   function renderMsg(m) {
     const mine = m.uid === myId;
     const hm = new Date(m.t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
     return `<div class="cmsg ${mine ? "mine" : ""}">
       <div class="head"><b>${esc(m.nick)}</b> · ${hm}</div>
-      <div class="bubble">${esc(m.text)}</div></div>`;
+      <div class="bubble">${renderContent(m.text)}</div></div>`;
   }
 
   function renderChat() {

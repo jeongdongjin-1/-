@@ -299,6 +299,20 @@
   .media-card:hover .mc-play { background:var(--accent); }
   .media-card.filevid { aspect-ratio:auto; background:#0f172a; color:#cfe0ff; padding:13px 14px; gap:9px; justify-content:flex-start; font-size:13px; }
   .media-card.filevid .mc-play { position:static; width:32px; height:32px; font-size:14px; flex:0 0 auto; }
+  /* 출석체크 */
+  .attend-bar { max-width:1100px; margin:0 auto 12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+    background:var(--card); border:1px solid var(--border); border-radius:14px; padding:10px 16px; box-shadow:var(--shadow); }
+  .attend-bar button { background:var(--accent); color:#fff; border:none; border-radius:10px; padding:8px 16px; font-size:14px; font-weight:700; cursor:pointer; }
+  .attend-bar button.done { background:#e5e8eb; color:#8b95a1; cursor:default; }
+  .attend-info { font-size:13px; color:var(--muted); }
+  .attend-info b { color:var(--text); }
+  .attend-streak { color:#f04452; font-weight:700; }
+  .attend-today { margin-left:auto; font-size:13px; color:var(--muted); }
+  .attend-today b { color:var(--accent); }
+  /* 시스템(출석) 메시지 */
+  .cmsg.sys { align-self:center; max-width:92%; }
+  .cmsg.sys .head { display:none; }
+  .cmsg.sys .bubble { background:#fff6e8; border-color:#f3d18a; color:#9a6700; text-align:center; border-radius:999px; font-size:12.5px; font-weight:600; padding:6px 14px; }
   /* 채팅하며 보기: 상단 도킹 플레이어 */
   .chat-player { max-width:1100px; margin:0 auto 12px; background:#000; border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:var(--shadow); }
   .chat-player .cp-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 10px; background:var(--card); border-bottom:1px solid var(--border); }
@@ -559,6 +573,7 @@
         <input id="chatNick" placeholder="닉네임" maxlength="20" />
       </div>
       <div class="chat-presence" id="chatPresence"></div>
+      <div class="attend-bar" id="attendBar"></div>
       <div class="chat-player" id="chatPlayer" style="display:none"></div>
       <div class="chat-messages" id="chatMessages"></div>
       <form class="chat-input" id="chatForm" autocomplete="off">
@@ -1340,6 +1355,66 @@
   let presenceTimer = null, pruneTimer = null;
   const curNick = () => ($("chatNick").value.trim() || "익명").slice(0, 20);
 
+  // 출석체크: 개인 기록(localStorage) + 오늘 출석 인원 공유(MQTT 스냅샷)
+  const ATTEND_MSG = `${TOPIC_BASE}/attend/msg`;
+  const ATTEND_SNAP = `${TOPIC_BASE}/attend/snap`;
+  const attendList = [];               // [{uid, nick, date}]
+  const attendSeen = new Set();
+  const ymdLocal = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  const todayStr = () => ymdLocal(new Date());
+
+  function addAttend(rec) {
+    if (!rec || !rec.uid || !rec.date) return false;
+    const k = rec.uid + "|" + rec.date;
+    if (attendSeen.has(k)) return false;
+    attendSeen.add(k); attendList.push(rec);
+    return true;
+  }
+  function publishAttendSnap() {
+    if (!mqc || !mqc.connected) return;
+    const today = todayStr();
+    mqc.publish(ATTEND_SNAP, JSON.stringify(attendList.filter((a) => a.date === today).slice(-200)), { retain: true, qos: 0 });
+  }
+  function renderAttend() {
+    const el = $("attendBar"); if (!el) return;
+    const today = todayStr();
+    const done = localStorage.getItem("attendLast") === today;
+    const streak = parseInt(localStorage.getItem("attendStreak") || "0", 10);
+    const total = parseInt(localStorage.getItem("attendTotal") || "0", 10);
+    const todayCount = new Set(attendList.filter((a) => a.date === today).map((a) => a.uid)).size;
+    el.innerHTML =
+      `<button id="attendBtn" class="${done ? "done" : ""}">${done ? "✅ 오늘 출석완료" : "📅 오늘 출석체크"}</button>` +
+      `<span class="attend-info">${streak > 0 ? `<span class="attend-streak">🔥 ${streak}일 연속</span> · ` : ""}누적 <b>${total}</b>일</span>` +
+      `<span class="attend-today">오늘 출석 <b>${todayCount}</b>명</span>`;
+    const btn = $("attendBtn");
+    if (btn && !done) btn.onclick = doCheckIn;
+  }
+  function doCheckIn() {
+    const today = todayStr();
+    if (localStorage.getItem("attendLast") === today) return;
+    const last = localStorage.getItem("attendLast");
+    const yest = ymdLocal(new Date(Date.now() - 86400000));
+    let streak = parseInt(localStorage.getItem("attendStreak") || "0", 10);
+    let total = parseInt(localStorage.getItem("attendTotal") || "0", 10);
+    streak = last === yest ? streak + 1 : 1;
+    total += 1;
+    localStorage.setItem("attendLast", today);
+    localStorage.setItem("attendStreak", String(streak));
+    localStorage.setItem("attendTotal", String(total));
+
+    const nick = curNick();
+    const rec = { uid: myId, nick, date: today };
+    if (mqc && mqc.connected) mqc.publish(ATTEND_MSG, JSON.stringify(rec), { qos: 0 });
+    addAttend(rec); publishAttendSnap();
+
+    // 채팅에 출석 시스템 메시지
+    const sys = { id: myId + "-att-" + Date.now(), uid: myId, nick, sys: true, t: Date.now(),
+      text: `📅 ${nick}님 출석! 🔥${streak}일 연속 · 누적 ${total}일` };
+    if (mqc && mqc.connected) mqc.publish(ctopic(chatChannel, "msg"), JSON.stringify(sys), { qos: 0 });
+    addChatMsg(chatChannel, sys); renderChat(); publishSnapshot(chatChannel);
+    renderAttend();
+  }
+
   function ensureMqttLib() {
     if (window.mqtt) return Promise.resolve(true);
     if (chatLibLoading) return chatLibLoading;
@@ -1378,7 +1453,7 @@
     });
     $("chatForm").onsubmit = sendChat;
     chatInited = true;
-    renderChat(); renderPresence();
+    renderChat(); renderPresence(); renderAttend();
 
     chatStatus = "연결 중…"; renderChat();
     const will = { topic: PRESENCE_TOPIC, payload: JSON.stringify({ uid: myId, leave: true }), qos: 0, retain: false };
@@ -1386,6 +1461,8 @@
     mqc.on("connect", () => {
       chatStatus = ""; subscribeChat(chatChannel);
       mqc.subscribe(PRESENCE_TOPIC);
+      mqc.subscribe(ATTEND_MSG);
+      mqc.subscribe(ATTEND_SNAP);
       publishPresence();
       if (!presenceTimer) presenceTimer = setInterval(publishPresence, 12000); // 하트비트
       if (!pruneTimer) pruneTimer = setInterval(prunePresence, 5000);
@@ -1454,6 +1531,8 @@
   function onChatMessage(t, payload) {
     let data; try { data = JSON.parse(payload.toString()); } catch (e) { return; }
     if (t === PRESENCE_TOPIC) { handlePresence(data); return; }
+    if (t === ATTEND_SNAP) { if (Array.isArray(data)) { data.forEach(addAttend); renderAttend(); } return; }
+    if (t === ATTEND_MSG) { if (addAttend(data)) renderAttend(); return; }
     const [, , ch, kind] = t.split("/");
     if (!chatLists[ch]) return;
     if (kind === "snap" && Array.isArray(data)) {
@@ -1603,6 +1682,7 @@
   }
 
   function renderMsg(m) {
+    if (m.sys) return `<div class="cmsg sys"><div class="bubble">${esc(m.text)}</div></div>`;
     const mine = m.uid === myId;
     const hm = new Date(m.t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
     return `<div class="cmsg ${mine ? "mine" : ""}">
@@ -1678,11 +1758,12 @@
   gridEl.innerHTML = Array.from({ length: 8 }, () =>
     `<div class="skel"><div class="ln sm"></div><div class="ln big"></div><div class="ln sm"></div></div>`).join("");
 
-  // 키 없이도 동작하므로 열자마자 자동 시작
+  // 키 없이도 동작하므로 열자마자 자동 시작 (대시보드 데이터는 백그라운드로 준비)
   initExchange();
   fetchRates().then(() => { if (!selectedCode) selectCurrency("USD"); });
   loadComments();
   scheduleTimer();
+  switchTab("chat"); // 접속 시 토론방부터 표시
 
   // PWA: 서비스워커 등록 (http/https에서만 — file://·Electron 제외)
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {

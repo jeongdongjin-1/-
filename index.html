@@ -298,6 +298,16 @@
   .media-card:hover .mc-play { background:var(--accent); }
   .media-card.filevid { aspect-ratio:auto; background:#0f172a; color:#cfe0ff; padding:13px 14px; gap:9px; justify-content:flex-start; font-size:13px; }
   .media-card.filevid .mc-play { position:static; width:32px; height:32px; font-size:14px; flex:0 0 auto; }
+  /* 채팅하며 보기: 상단 도킹 플레이어 */
+  .chat-player { max-width:1100px; margin:0 auto 12px; background:#000; border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:var(--shadow); }
+  .chat-player .cp-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 10px; background:var(--card); border-bottom:1px solid var(--border); }
+  .chat-player .cp-t { font-size:13px; font-weight:700; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .chat-player .cp-act { display:flex; gap:6px; flex:0 0 auto; }
+  .chat-player .cp-btn { background:var(--bg); border:1px solid var(--border); border-radius:7px; width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; font-size:13px; color:var(--muted); text-decoration:none; cursor:pointer; }
+  .chat-player .cp-btn:hover { border-color:var(--accent); color:var(--accent); }
+  .chat-player .cp-frame { width:100%; max-width:560px; margin:0 auto; aspect-ratio:16/9; background:#000; }
+  .chat-player .cp-frame iframe, .chat-player .cp-frame video { width:100%; height:100%; border:0; display:block; }
+  #chatRoom.playing #chatMessages { height:34vh; min-height:150px; }
   /* 중앙 미디어 모달 */
   .modal-overlay { position:fixed; inset:0; z-index:1000; background:rgba(17,31,40,.62); display:flex; align-items:center; justify-content:center; padding:16px; }
   .modal-box { background:var(--card); border-radius:16px; width:min(860px,96vw); max-height:90vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 24px 70px rgba(0,0,0,.35); }
@@ -546,6 +556,7 @@
         <input id="chatNick" placeholder="닉네임" maxlength="20" />
       </div>
       <div class="chat-presence" id="chatPresence"></div>
+      <div class="chat-player" id="chatPlayer" style="display:none"></div>
       <div class="chat-messages" id="chatMessages"></div>
       <form class="chat-input" id="chatForm" autocomplete="off">
         <input id="chatText" placeholder="메시지·뉴스 링크·유튜브 URL 공유 (최대 500자)" maxlength="500" />
@@ -1530,6 +1541,33 @@
   }
   function closeMedia() { $("modalBody").innerHTML = ""; $("mediaModal").style.display = "none"; }
 
+  // 채팅하며 보기: 영상을 채팅 상단에 도킹(메시지·입력 그대로 사용 가능)
+  function dockPlayer(type, data) {
+    const wrap = $("chatPlayer");
+    const openHref = type === "yt" ? "https://www.youtube.com/watch?v=" + data.id : data.url;
+    const frame = type === "yt"
+      ? `<iframe src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0&playsinline=1" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`
+      : `<video src="${esc(data.url)}" controls autoplay playsinline></video>`;
+    wrap.innerHTML =
+      `<div class="cp-head"><span class="cp-t">${type === "yt" ? "▶ YouTube" : "▶ " + esc(hostOf(data.url))}</span>` +
+      `<span class="cp-act">` +
+      `<button class="cp-btn" id="cpExpand" title="크게 보기">⛶</button>` +
+      `<a class="cp-btn" id="cpOpen" href="${esc(openHref)}" target="_blank" rel="noopener noreferrer" title="새 탭">↗</a>` +
+      `<button class="cp-btn" id="cpClose" title="닫기">✕</button></span></div>` +
+      `<div class="cp-frame">${frame}</div>`;
+    wrap.style.display = "";
+    $("chatRoom").classList.add("playing");
+    $("cpClose").onclick = closeDock;
+    $("cpExpand").onclick = () => { closeDock(); openMedia(type, data); };
+    const v = wrap.querySelector("video");
+    if (v) v.onerror = () => { wrap.querySelector(".cp-frame").innerHTML = `<div class="modal-note" style="padding:18px;text-align:center">재생할 수 없는 동영상입니다. ↗ 새 탭에서 열어주세요.</div>`; };
+    $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
+  }
+  function closeDock() {
+    $("chatPlayer").innerHTML = ""; $("chatPlayer").style.display = "none";
+    $("chatRoom").classList.remove("playing");
+  }
+
   function renderMsg(m) {
     const mine = m.uid === myId;
     const hm = new Date(m.t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
@@ -1582,16 +1620,21 @@
   document.getElementById("worldRefresh").onclick = () => loadWorld(true);
 
   // 토론방 미디어 카드 클릭 → 중앙 모달 (링크 이동 대신 그 자리에서 재생/표시)
+  function activateMedia(el) {
+    const type = el.dataset.media, data = { id: el.dataset.id, url: el.dataset.url };
+    if (type === "yt" || type === "vid") dockPlayer(type, data); // 영상 → 채팅하며 보기(도킹)
+    else openMedia(type, data);                                  // 링크 → 중앙 모달
+  }
   $("chatMessages").addEventListener("click", (e) => {
     const el = e.target.closest("[data-media]");
     if (!el) return;
     e.preventDefault();
-    openMedia(el.dataset.media, { id: el.dataset.id, url: el.dataset.url });
+    activateMedia(el);
   });
   $("chatMessages").addEventListener("keydown", (e) => {
     if (e.key !== "Enter" && e.key !== " ") return;
     const el = e.target.closest("[data-media]");
-    if (el) { e.preventDefault(); openMedia(el.dataset.media, { id: el.dataset.id, url: el.dataset.url }); }
+    if (el) { e.preventDefault(); activateMedia(el); }
   });
   $("modalClose").onclick = closeMedia;
   $("mediaModal").addEventListener("click", (e) => { if (e.target.id === "mediaModal") closeMedia(); });

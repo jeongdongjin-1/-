@@ -1467,7 +1467,7 @@
 
   // 유튜브 영상 ID 추출 (watch/youtu.be/shorts/embed)
   function youtubeId(url) {
-    const m = url.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
+    const m = url.match(/(?:youtube\.com\/(?:watch\?(?:.*&)?v=|shorts\/|embed\/|live\/)|youtu\.be\/)([A-Za-z0-9_-]{11})/);
     return m ? m[1] : null;
   }
   function hostOf(url) { try { return new URL(url).hostname.replace(/^www\./, ""); } catch (e) { return url; } }
@@ -1511,10 +1511,16 @@
     if (type === "yt") {
       title.textContent = "YouTube"; open.href = "https://www.youtube.com/watch?v=" + data.id;
       body.style.background = "#000";
-      body.innerHTML = `<iframe class="mv-frame" src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`;
+      body.innerHTML = `<iframe class="mv-frame" src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0&playsinline=1" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>` +
+        `<div class="modal-note">재생 오류가 나면(소유자가 임베드 차단한 영상 등) 위 <b>↗ 새 탭에서 열기</b>를 눌러주세요.</div>`;
     } else if (type === "vid") {
       title.textContent = hostOf(data.url); open.href = data.url; body.style.background = "#000";
-      body.innerHTML = `<video class="mv-frame" src="${esc(data.url)}" controls autoplay playsinline></video>`;
+      body.innerHTML = `<video class="mv-frame" src="${esc(data.url)}" controls autoplay playsinline></video>` +
+        `<div class="modal-note">재생이 안 되면 위 <b>↗ 새 탭에서 열기</b>를 눌러주세요.</div>`;
+      const vid = body.querySelector("video");
+      if (vid) vid.onerror = () => {
+        body.innerHTML = `<div class="modal-note" style="padding:26px;text-align:center;line-height:1.7">이 동영상을 재생할 수 없습니다(형식 미지원·접근 차단 등).<br>위 <b>↗ 새 탭에서 열기</b>로 확인해 주세요.</div>`;
+      };
     } else {
       title.textContent = hostOf(data.url); open.href = data.url; body.style.background = "var(--card)";
       body.innerHTML = `<iframe class="web" src="${esc(data.url)}" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-popups allow-forms"></iframe>` +

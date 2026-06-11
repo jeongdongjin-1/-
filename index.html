@@ -1,0 +1,1052 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>실시간 환율 대시보드</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --card-hover: #273449;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --accent: #38bdf8;
+    --up: #f87171;
+    --down: #4ade80;
+    --border: #334155;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 24px;
+  }
+  header {
+    max-width: 1100px;
+    margin: 0 auto 24px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    justify-content: space-between;
+  }
+  h1 { font-size: 22px; font-weight: 700; }
+  h1 .dot {
+    display: inline-block; width: 10px; height: 10px;
+    border-radius: 50%; background: var(--down);
+    margin-right: 8px; vertical-align: middle;
+    animation: pulse 1.6s infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .controls {
+    max-width: 1100px; margin: 0 auto 20px;
+    display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+    background: var(--card); padding: 14px 16px; border-radius: 12px;
+    border: 1px solid var(--border);
+  }
+  .controls label { font-size: 13px; color: var(--muted); }
+  input, select {
+    background: var(--bg); color: var(--text);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 8px 10px; font-size: 14px;
+  }
+  input#apiKey { width: 240px; }
+  button {
+    background: var(--accent); color: #05202e; border: none;
+    border-radius: 8px; padding: 8px 16px; font-weight: 600;
+    cursor: pointer; font-size: 14px;
+  }
+  button:hover { opacity: .9; }
+  .status {
+    max-width: 1100px; margin: 0 auto 16px; font-size: 13px;
+    color: var(--muted); min-height: 18px;
+  }
+  .status.error { color: var(--up); }
+  .grid {
+    max-width: 1100px; margin: 0 auto;
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px; transition: .15s;
+  }
+  .card:hover { background: var(--card-hover); transform: translateY(-2px); }
+  .card .pair { font-size: 13px; color: var(--muted); }
+  .card .flag { font-size: 20px; margin-right: 6px; }
+  .card .rate {
+    font-size: 26px; font-weight: 700; margin: 6px 0 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .card .unit { font-size: 12px; color: var(--muted); }
+  .card .delta { font-size: 13px; margin-top: 8px; font-variant-numeric: tabular-nums; }
+  .delta.up { color: var(--up); }
+  .delta.down { color: var(--down); }
+  .delta.flat { color: var(--muted); }
+  .card .comment {
+    font-size: 12px; line-height: 1.5; margin-top: 10px;
+    padding-top: 10px; border-top: 1px solid var(--border); color: var(--muted);
+  }
+  .comment.up { color: #fca5a5; }
+  .comment.down { color: #86efac; }
+  .comment.flat { color: var(--muted); }
+  .chart-comment {
+    margin-top: 12px; font-size: 13px; line-height: 1.6;
+    padding: 10px 12px; border-radius: 8px; background: var(--bg); border: 1px solid var(--border);
+  }
+  .card { cursor: pointer; }
+  .card.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+  /* 차트 패널 */
+  .chart-panel {
+    max-width: 1100px; margin: 0 auto 20px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 14px; padding: 18px;
+  }
+  .chart-head {
+    display: flex; flex-wrap: wrap; align-items: center;
+    justify-content: space-between; gap: 10px; margin-bottom: 10px;
+  }
+  .chart-title { font-size: 16px; font-weight: 700; }
+  .chart-title .flag { font-size: 20px; margin-right: 6px; }
+  .chart-stats { font-size: 13px; color: var(--muted); display: flex; gap: 14px; flex-wrap: wrap; }
+  .chart-stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+  .periods button {
+    background: var(--bg); color: var(--muted); border: 1px solid var(--border);
+    padding: 5px 12px; font-size: 13px; margin-left: 6px;
+  }
+  .periods button.active { background: var(--accent); color: #05202e; border-color: var(--accent); }
+  .chart-svg { width: 100%; height: auto; display: block; }
+  .chart-svg .grid-line { stroke: var(--border); stroke-width: 1; }
+  .chart-svg .area { fill: var(--accent); opacity: .12; }
+  .chart-svg .line { fill: none; stroke: var(--accent); stroke-width: 2; }
+  .chart-svg .axis-label { fill: var(--muted); font-size: 11px; }
+  .chart-svg .dot-last { fill: var(--accent); }
+  /* 탭 */
+  .tabs {
+    max-width: 1100px; margin: 0 auto 18px; display: flex; gap: 6px;
+    border-bottom: 1px solid var(--border);
+  }
+  .tabs button {
+    background: transparent; color: var(--muted); border: none; border-radius: 0;
+    padding: 10px 18px; font-size: 15px; font-weight: 600; border-bottom: 2px solid transparent;
+  }
+  .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  /* 환전 가이드 */
+  .ex-calc {
+    max-width: 1100px; margin: 0 auto 18px; display: flex; flex-wrap: wrap; gap: 12px;
+    align-items: flex-end; background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px;
+  }
+  .ex-calc .field { display: flex; flex-direction: column; gap: 5px; }
+  .ex-calc label { font-size: 12px; color: var(--muted); }
+  .ex-calc input { width: 150px; }
+  .ex-panel { max-width: 1100px; margin: 0 auto 18px; }
+  .best-banner {
+    background: linear-gradient(90deg, rgba(56,189,248,.18), rgba(56,189,248,.04));
+    border: 1px solid var(--accent); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px;
+  }
+  .best-banner .big { font-size: 20px; font-weight: 700; color: var(--accent); }
+  .best-banner .sub { font-size: 13px; color: var(--muted); margin-top: 6px; }
+  table.cmp { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.cmp th, table.cmp td { padding: 10px 12px; text-align: right; border-bottom: 1px solid var(--border); }
+  table.cmp th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  table.cmp td:first-child, table.cmp th:first-child { text-align: left; }
+  table.cmp tr.best td { background: rgba(56,189,248,.10); }
+  table.cmp .method { font-weight: 600; }
+  table.cmp .tag { font-size: 11px; color: var(--muted); display: block; }
+  table.cmp .save { color: var(--down); font-variant-numeric: tabular-nums; }
+  .tips { max-width: 1100px; margin: 0 auto; display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(320px,1fr)); }
+  .tip { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .tip h4 { font-size: 14px; margin-bottom: 6px; }
+  .tip p { font-size: 13px; color: var(--muted); line-height: 1.6; }
+  .bestgrid { max-width:1100px; margin: 0 auto 18px; display:grid; gap:10px;
+    grid-template-columns: repeat(auto-fill, minmax(210px,1fr)); }
+  .bestcard { background: var(--card); border:1px solid var(--border); border-radius:10px; padding:12px 14px; }
+  .bestcard .c { font-size:13px; color:var(--muted); }
+  .bestcard .m { font-size:15px; font-weight:700; margin-top:4px; }
+  .bestcard .d { font-size:12px; color:var(--muted); margin-top:4px; }
+  h3.sec { max-width:1100px; margin: 22px auto 12px; font-size:16px; }
+  /* 뉴스 */
+  .news-bar { max-width:1100px; margin:0 auto 16px; display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .news-bar .chip {
+    background: var(--card); color: var(--muted); border:1px solid var(--border);
+    border-radius:20px; padding:6px 14px; font-size:13px; cursor:pointer;
+  }
+  .news-bar .chip.active { background: var(--accent); color:#05202e; border-color:var(--accent); font-weight:600; }
+  .news-list { max-width:1100px; margin:0 auto; display:flex; flex-direction:column; gap:10px; }
+  .news-item {
+    background: var(--card); border:1px solid var(--border); border-radius:12px;
+    padding:14px 16px; transition:.15s;
+  }
+  .news-item:hover { background: var(--card-hover); border-color: var(--accent); }
+  .news-item a { font-size:15px; font-weight:600; color: var(--text); text-decoration:none; line-height:1.5; }
+  .news-item a:hover { color: var(--accent); }
+  .news-item .meta { font-size:12px; color: var(--muted); margin-top:6px; }
+  .news-loading { max-width:1100px; margin:0 auto; color: var(--muted); font-size:14px; padding:20px 0; }
+  /* 출국제한국가 */
+  .ban-notice {
+    max-width:1100px; margin:0 auto 18px; background: rgba(248,113,113,.10);
+    border:1px solid var(--up); border-radius:12px; padding:16px 18px; font-size:13px; line-height:1.7;
+  }
+  .ban-notice b { color: #fca5a5; }
+  .ban-refs { max-width:1100px; margin:0 auto 18px; font-size:13px; line-height:1.9; }
+  .ban-refs a { margin-right:14px; white-space:nowrap; }
+  .ban-grid { max-width:1100px; margin:0 auto; display:grid; gap:14px;
+    grid-template-columns: repeat(auto-fill, minmax(330px,1fr)); }
+  .ban-card { background: var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; }
+  .ban-card .name { font-size:16px; font-weight:700; }
+  .ban-card .name .flag { font-size:20px; margin-right:6px; }
+  .ban-card .lvl { display:inline-block; font-size:11px; font-weight:700;
+    background:#111827; border:1px solid var(--up); color:#fca5a5; border-radius:6px; padding:2px 8px; margin-left:8px; vertical-align:middle; }
+  .ban-card .lvl.lvl3 { border-color:#fbbf24; color:#fbbf24; }
+  .ban-card.lv3 .reason { color:#fbbf24; }
+  /* 지도 */
+  #banMap { max-width:1100px; margin:0 auto; height:430px; border-radius:12px; border:1px solid var(--border); background:#0b1220; }
+  .map-legend { max-width:1100px; margin:8px auto 0; display:flex; gap:16px; flex-wrap:wrap; align-items:center; font-size:13px; color:var(--text); }
+  .map-legend i { display:inline-block; width:12px; height:12px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  .map-legend .m { color:var(--muted); font-size:12px; }
+  .map-fail { display:flex; align-items:center; justify-content:center; height:100%; padding:20px; color:var(--muted); font-size:14px; text-align:center; }
+  .leaflet-popup-content { font-size:13px; line-height:1.5; }
+  .ban-card .reason { font-size:13px; color: var(--accent); margin-top:8px; font-weight:600; }
+  .ban-card .desc { font-size:13px; color: var(--muted); line-height:1.6; margin-top:6px; }
+  .ban-card .newsbtn {
+    margin-top:10px; background: var(--bg); color: var(--accent); border:1px solid var(--border);
+    border-radius:8px; padding:6px 12px; font-size:12px; }
+  .ban-card .cnews { margin-top:10px; display:none; flex-direction:column; gap:7px; }
+  .ban-card .cnews a { font-size:13px; color: var(--text); text-decoration:none; line-height:1.45; }
+  .ban-card .cnews a:hover { color: var(--accent); }
+  .ban-card .cnews .m { font-size:11px; color: var(--muted); }
+  .ban-regions { max-width:1100px; margin:0 auto; background: var(--card);
+    border:1px solid var(--border); border-radius:12px; padding:16px; font-size:13px; line-height:1.9; color: var(--muted); }
+  footer { max-width: 1100px; margin: 28px auto 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <header>
+    <h1><span class="dot"></span>실시간 환율 대시보드</h1>
+    <div style="font-size:13px;color:var(--muted)">기준: 원화(KRW) · 현재가 open.er-api.com · 차트 frankfurter.dev</div>
+  </header>
+
+  <div class="tabs">
+    <button id="tabBtnDash" class="active" onclick="switchTab('dash')">📊 환율 대시보드</button>
+    <button id="tabBtnEx" onclick="switchTab('ex')">💱 환전 유리한 방법</button>
+    <button id="tabBtnNews" onclick="switchTab('news')">📰 환율 뉴스</button>
+    <button id="tabBtnBan" onclick="switchTab('ban')">🛂 출국제한국가</button>
+  </div>
+
+  <div id="tab-dashboard">
+  <div class="controls">
+    <label>인증키(선택):</label>
+    <input id="apiKey" type="password" placeholder="비워두면 무료(키 없음)로 동작" />
+    <label>갱신 주기:</label>
+    <select id="interval">
+      <option value="60">1분</option>
+      <option value="300" selected>5분</option>
+      <option value="600">10분</option>
+    </select>
+    <button id="refreshBtn">지금 갱신</button>
+    <button id="saveBtn" style="background:#475569;color:#e2e8f0">키 저장</button>
+  </div>
+
+  <div class="status" id="status">"지금 갱신"을 누르면 환율을 불러옵니다. (키 없이 바로 동작)</div>
+
+  <div class="chart-panel" id="chartPanel" style="display:none">
+    <div class="chart-head">
+      <div class="chart-title" id="chartTitle"></div>
+      <div class="periods" id="periods">
+        <button data-days="7">7일</button>
+        <button data-days="30" class="active">30일</button>
+        <button data-days="90">90일</button>
+      </div>
+    </div>
+    <div class="chart-stats" id="chartStats"></div>
+    <div id="chartArea"></div>
+    <div class="chart-comment" id="chartComment" style="display:none"></div>
+  </div>
+
+  <div class="grid" id="grid"></div>
+  </div><!-- /tab-dashboard -->
+
+  <div id="tab-exchange" style="display:none">
+    <div class="ex-calc">
+      <div class="field">
+        <label>통화</label>
+        <select id="exCurrency"></select>
+      </div>
+      <div class="field">
+        <label>금액 (외화)</label>
+        <input id="exAmount" type="number" value="1000" min="0" />
+      </div>
+      <div class="field">
+        <label>환전 목적</label>
+        <select id="exPurpose">
+          <option value="cash">현찰 수령 (여행 경비)</option>
+          <option value="card">카드 결제·ATM (현지 사용)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>모바일앱 환율우대율 (%)</label>
+        <input id="exPref" type="number" value="90" min="0" max="100" />
+      </div>
+      <button id="exCalcBtn">비교하기</button>
+    </div>
+
+    <div class="ex-panel" id="exResult"></div>
+
+    <h3 class="sec">📌 통화별 추천 (1,000단위 기준)</h3>
+    <div class="bestgrid" id="bestGrid"></div>
+
+    <h3 class="sec">💡 실전 절약 팁</h3>
+    <div class="tips">
+      <div class="tip"><h4>1) 공항 환전은 피하세요</h4><p>공항·호텔 환전은 우대율이 거의 0%라 같은 통화도 은행 모바일 환전보다 1.5~2% 더 비쌉니다. 급할 때 최소 금액만 쓰세요.</p></div>
+      <div class="tip"><h4>2) 은행 모바일 환전 우대 활용</h4><p>은행 앱으로 미리 환전하면 USD·EUR·JPY는 우대율 80~90%까지 받습니다. 영업점 수령 또는 공항 수령 선택 가능.</p></div>
+      <div class="tip"><h4>3) 트래블 체크카드 (현지 결제·ATM)</h4><p>트래블월렛·트래블로그 등은 주요 통화 환전수수료가 0~0.5%로 가장 저렴합니다. 현지 카드결제·ATM 인출에 최적(단, 현지 ATM 자체 수수료는 별도).</p></div>
+      <div class="tip"><h4>4) 이중환전 (신흥국 통화)</h4><p>원화→현지통화 직접 환전은 스프레드가 큰 통화(동남아 등)는, 한국에서 USD로 바꿔 가서 현지에서 USD→현지통화 환전이 더 쌀 수 있습니다.</p></div>
+      <div class="tip"><h4>5) 현찰 vs 전신환(송금)</h4><p>해외송금·유학비는 '현찰'이 아니라 '전신환(송금)' 환율을 적용받아 스프레드가 절반 수준입니다. 목적에 맞는 환율을 확인하세요.</p></div>
+      <div class="tip"><h4>6) 환율이 쌀 때 분할 환전</h4><p>대시보드 탭의 흐름 코멘트가 '하락(원화 강세)'일 때가 외화 사기 유리합니다. 한 번에 말고 며칠 나눠 환전하면 평균 단가를 낮출 수 있습니다.</p></div>
+    </div>
+  </div><!-- /tab-exchange -->
+
+  <div id="tab-news" style="display:none">
+    <div class="news-bar" id="newsChips"></div>
+    <div class="news-list" id="newsList"></div>
+    <p class="news-loading" style="font-size:12px">
+      ※ Google 뉴스 RSS를 공개 CORS 프록시(allorigins / corsproxy)를 거쳐 불러옵니다. 무료·키 없음. 제목 클릭 시 원문 기사로 이동합니다.</p>
+  </div><!-- /tab-news -->
+
+  <div id="tab-ban" style="display:none">
+    <div class="ban-notice">
+      🛂 <b>여행금지(여행경보 4단계)</b>는 외교부가 지정하는 최고 단계로, 해당 국가·지역은 <b>방문·체류가 금지</b>됩니다.
+      위반 시 <b>여권법 제26조</b>에 따라 <b>1년 이하 징역 또는 1,000만원 이하 벌금</b>및 여권 행정제재(여권 반납·재발급 제한 등)가 부과될 수 있습니다.
+      불가피한 방문은 사전에 <b>예외적 여권사용 허가</b>를 받아야 합니다.
+      <br>※ 아래는 외교부 발표 기준(지정기간 2026.7.31까지 연장)이며, 정세에 따라 수시로 바뀝니다. 출국 전 반드시 <b>해외안전여행(0404.go.kr)</b>에서 최신 정보를 확인하세요.
+    </div>
+
+    <div class="ban-refs">
+      📎 <b>참고 자료</b> :
+      <a href="https://www.0404.go.kr/travelAlert/apntStatus/stepTravelAlert" target="_blank" rel="noopener noreferrer">외교부 단계별 여행경보</a>
+      <a href="https://www.mofa.go.kr/www/brd/m_4080/view.do?seq=376799" target="_blank" rel="noopener noreferrer">외교부 여행경보 정기조정 보도자료</a>
+      <a href="https://www.data.go.kr/data/15000504/openapi.do" target="_blank" rel="noopener noreferrer">공공데이터포털 여행금지제도 API</a>
+      <a href="https://namu.wiki/w/여행경보제도" target="_blank" rel="noopener noreferrer">여행경보제도 개요(나무위키)</a>
+    </div>
+
+    <h3 class="sec">🗺️ 지정 지역 상세 지도</h3>
+    <div id="banMap"></div>
+    <div class="map-legend">
+      <span><i style="background:#f87171"></i> 4단계 여행금지</span>
+      <span><i style="background:#fbbf24"></i> 3단계 철수권고</span>
+      <span class="m">※ 점을 클릭하면 국가·사유가 표시됩니다. 지도 타일은 인터넷 연결이 필요합니다.</span>
+    </div>
+
+    <h3 class="sec">🚫 여행금지(4단계) 지정 <b>국가</b> (9개국)</h3>
+    <div class="ban-grid" id="banGrid"></div>
+
+    <h3 class="sec">🟠 철수권고(3단계) 주요 <b>국가</b></h3>
+    <div class="ban-grid" id="banGrid3"></div>
+
+    <h3 class="sec">📍 여행금지 지정 <b>일부 지역</b></h3>
+    <div class="ban-regions" id="banRegions"></div>
+  </div><!-- /tab-ban -->
+
+  <footer>
+    <p>※ <b>키를 비워두면</b> 가입·인증키 없이 <code>open.er-api.com</code>(원화 기준, 하루 1회 갱신)을 사용합니다.</p>
+    <p>※ <b>키를 입력하면</b> exchangerate.host로 전환됩니다. 단, 무료 플랜은 60분 갱신이며 기준통화는 USD 고정이라
+    원화 환산값은 <code>USDKRW ÷ USD해당통화</code>로 계산합니다. (분 단위 실시간은 유료 플랜 필요)</p>
+    <p>※ 인증키는 서버로 전송되지 않고 이 브라우저(localStorage)에만 저장됩니다.
+    키 발급: <a href="https://exchangerate.host/" target="_blank">exchangerate.host</a></p>
+    <p style="color:#fbbf24">⚠ <b>흐름 코멘트는 최근 30일 시세의 이동평균·모멘텀·변동성을 계산한 데이터 기반 참고용</b>이며,
+    미래 환율을 보장하는 예측이나 투자 권유가 아닙니다. 과거 추세는 향후와 다를 수 있습니다.</p>
+  </footer>
+
+<script>
+  // 화면에 표시할 통화 목록 (코드, 이름, 국기, 표시 단위)
+  const CURRENCIES = [
+    { code: "USD", name: "미국 달러",   flag: "🇺🇸", per: 1 },
+    { code: "EUR", name: "유로",        flag: "🇪🇺", per: 1 },
+    { code: "JPY", name: "일본 엔",      flag: "🇯🇵", per: 100 },
+    { code: "CNY", name: "중국 위안",    flag: "🇨🇳", per: 1 },
+    { code: "GBP", name: "영국 파운드",  flag: "🇬🇧", per: 1 },
+    { code: "AUD", name: "호주 달러",    flag: "🇦🇺", per: 1 },
+    { code: "CAD", name: "캐나다 달러",  flag: "🇨🇦", per: 1 },
+    { code: "CHF", name: "스위스 프랑",  flag: "🇨🇭", per: 1 },
+    { code: "HKD", name: "홍콩 달러",    flag: "🇭🇰", per: 1 },
+    { code: "SGD", name: "싱가포르 달러", flag: "🇸🇬", per: 1 },
+  ];
+
+  const $ = (id) => document.getElementById(id);
+  const apiKeyInput = $("apiKey");
+  const statusEl = $("status");
+  const gridEl = $("grid");
+  let timer = null;
+  let prevRates = {}; // 직전 환율 저장(증감 비교용)
+
+  // 저장된 키 불러오기
+  apiKeyInput.value = localStorage.getItem("erh_key") || "";
+
+  $("saveBtn").onclick = () => {
+    localStorage.setItem("erh_key", apiKeyInput.value.trim());
+    setStatus("인증키를 저장했습니다.");
+  };
+  $("refreshBtn").onclick = () => fetchRates();
+  $("interval").onchange = () => scheduleTimer();
+
+  function setStatus(msg, isError = false) {
+    statusEl.textContent = msg;
+    statusEl.className = "status" + (isError ? " error" : "");
+  }
+
+  async function fetchRates() {
+    const key = apiKeyInput.value.trim();
+    setStatus("환율 불러오는 중…");
+    try {
+      // 키가 있으면 exchangerate.host, 없으면 키 없이 동작하는 open.er-api.com 사용
+      const krwRates = key ? await fetchExchangerateHost(key) : await fetchOpenErApi();
+      if (!krwRates) return; // 내부에서 에러 표시됨
+      render(krwRates.rates);
+      setStatus(`마지막 갱신: ${krwRates.time.toLocaleString("ko-KR")}  ·  ${krwRates.source}`);
+    } catch (e) {
+      setStatus("네트워크 오류: " + e.message, true);
+    }
+  }
+
+  // 키 없음: 원화(KRW) 기준 직접 반환. 1 KRW = rate[통화]  →  1 통화 = 1/rate 원
+  async function fetchOpenErApi() {
+    const res = await fetch("https://open.er-api.com/v6/latest/KRW");
+    const data = await res.json();
+    if (data.result !== "success") {
+      setStatus("오류: open.er-api.com 응답 실패", true); return null;
+    }
+    const out = {};
+    CURRENCIES.forEach(c => {
+      const r = data.rates[c.code];
+      if (r) out[c.code] = (1 / r) * c.per; // 1 단위 통화당 원
+    });
+    return { rates: out, time: new Date(data.time_last_update_unix * 1000), source: "open.er-api.com (일 1회)" };
+  }
+
+  // 키 있음: exchangerate.host /live (무료 플랜 호환 위해 source·currencies 파라미터 미사용)
+  async function fetchExchangerateHost(key) {
+    const url = `https://api.exchangerate.host/live?access_key=${encodeURIComponent(key)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!data.success) {
+      const info = data.error?.info || "요청 실패 (인증키 또는 플랜 확인)";
+      setStatus("오류: " + info, true); return null;
+    }
+    const q = data.quotes || {};
+    const usdKrw = q["USDKRW"];
+    if (!usdKrw) { setStatus("KRW 환율을 가져오지 못했습니다.", true); return null; }
+    const out = {};
+    CURRENCIES.forEach(c => {
+      const usdToCur = c.code === "USD" ? 1 : q["USD" + c.code];
+      if (usdToCur) out[c.code] = (usdKrw / usdToCur) * c.per; // USDKRW ÷ USD통화
+    });
+    return { rates: out, time: new Date((data.timestamp || 0) * 1000), source: "exchangerate.host" };
+  }
+
+  let lastRatesMap = null;
+  function render(krwPerUnitMap) {
+    lastRatesMap = krwPerUnitMap;
+    gridEl.innerHTML = "";
+    CURRENCIES.forEach(c => {
+      const krwPerUnit = krwPerUnitMap[c.code];
+      if (krwPerUnit == null) return;
+
+      const prev = prevRates[c.code];
+      let deltaHtml = '<div class="delta flat">—</div>';
+      if (prev != null) {
+        const diff = krwPerUnit - prev;
+        const pct = (diff / prev) * 100;
+        const cls = diff > 0 ? "up" : diff < 0 ? "down" : "flat";
+        const arrow = diff > 0 ? "▲" : diff < 0 ? "▼" : "—";
+        deltaHtml = `<div class="delta ${cls}">${arrow} ${Math.abs(diff).toFixed(2)}원 (${pct.toFixed(2)}%)</div>`;
+      }
+      prevRates[c.code] = krwPerUnit;
+
+      const cm = commentMap[c.code];
+      const commentHtml = cm
+        ? `<div class="comment ${cm.cls}">${cm.text}</div>`
+        : `<div class="comment flat">흐름 분석 중…</div>`;
+
+      const card = document.createElement("div");
+      card.className = "card" + (c.code === selectedCode ? " selected" : "");
+      card.innerHTML = `
+        <div class="pair"><span class="flag">${c.flag}</span>${c.name} (${c.code})</div>
+        <div class="rate">${krwPerUnit.toLocaleString("ko-KR", {maximumFractionDigits: 2})}</div>
+        <div class="unit">${c.per === 1 ? "1" : c.per} ${c.code} 당 원(KRW)</div>
+        ${deltaHtml}
+        ${commentHtml}
+      `;
+      card.onclick = () => selectCurrency(c.code);
+      gridEl.appendChild(card);
+    });
+  }
+
+  function scheduleTimer() {
+    if (timer) clearInterval(timer);
+    const sec = parseInt($("interval").value, 10);
+    timer = setInterval(fetchRates, sec * 1000);
+  }
+
+  /* ===== 차트 (frankfurter.dev 시계열, 무료·키 없음) ===== */
+  let selectedCode = null;
+  let selectedDays = 30;
+  const commentMap = {}; // 통화별 흐름 코멘트 캐시
+
+  // 기간 버튼
+  document.querySelectorAll("#periods button").forEach(btn => {
+    btn.onclick = () => {
+      selectedDays = parseInt(btn.dataset.days, 10);
+      document.querySelectorAll("#periods button").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      if (selectedCode) selectCurrency(selectedCode);
+    };
+  });
+
+  function ymd(d) {
+    return d.getFullYear() + "-" +
+      String(d.getMonth() + 1).padStart(2, "0") + "-" +
+      String(d.getDate()).padStart(2, "0");
+  }
+
+  async function selectCurrency(code) {
+    selectedCode = code;
+    // 카드 하이라이트 갱신
+    document.querySelectorAll("#grid .card").forEach((card, i) => {
+      card.classList.toggle("selected", CURRENCIES[i] && CURRENCIES[i].code === code);
+    });
+    const cur = CURRENCIES.find(c => c.code === code);
+    $("chartPanel").style.display = "";
+    $("chartTitle").innerHTML = `<span class="flag">${cur.flag}</span>${cur.name} (${code}) · 최근 ${selectedDays}일`;
+    $("chartStats").textContent = "차트 불러오는 중…";
+    $("chartArea").innerHTML = "";
+
+    try {
+      const series = await fetchHistory(cur);
+      if (!series.length) { $("chartStats").textContent = "데이터가 없습니다."; return; }
+      renderChart(cur, series);
+      updateChartComment(code);
+    } catch (e) {
+      $("chartStats").textContent = "차트 오류: " + e.message;
+    }
+  }
+
+  // frankfurter: base를 해당 통화로 두고 KRW 조회 → rate.KRW = 1 통화당 원 (정밀도 유지)
+  async function fetchHistory(cur, days = selectedDays) {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - days);
+    const url = `https://api.frankfurter.dev/v1/${ymd(start)}..${ymd(end)}?base=${cur.code}&symbols=KRW`;
+    const res = await fetch(url);
+    const data = await res.json();
+    const rates = data.rates || {};
+    return Object.keys(rates).sort()
+      .filter(date => rates[date] && rates[date].KRW)
+      .map(date => ({ date, value: rates[date].KRW * cur.per }));
+  }
+
+  /* ===== 데이터 기반 흐름 분석 ===== */
+  function analyze(series) {
+    const v = series.map(p => p.value);
+    const n = v.length;
+    if (n < 8) return { text: "📊 데이터 부족(영업일 기준)", cls: "flat", detail: "" };
+
+    const last = v[n - 1], first = v[0];
+    const pct = (last - first) / first * 100;
+    const sma = (arr, k) => { const s = arr.slice(-k); return s.reduce((a, b) => a + b, 0) / s.length; };
+    const sma5 = sma(v, 5);
+    const sma20 = sma(v, Math.min(20, n));
+    const recent5 = sma(v, 5);
+    const prev5 = sma(v.slice(0, -5), 5);
+    const slope = recent5 - prev5;               // 최근 5일 모멘텀
+    const mean = v.reduce((a, b) => a + b, 0) / n;
+    const sd = Math.sqrt(v.reduce((a, b) => a + (b - mean) ** 2, 0) / n);
+    const volPct = sd / mean * 100;              // 변동성(%)
+    const min = Math.min(...v), max = Math.max(...v);
+    const pos = (last - min) / ((max - min) || 1); // 최근 구간 내 위치 0~1
+
+    // 방향 판정: 단기·장기 이평선 정렬 + 모멘텀
+    let dir, cls, icon, outlook;
+    const up = sma5 > sma20 && slope > 0;
+    const down = sma5 < sma20 && slope < 0;
+    if (up) {
+      dir = "상승(원화 약세) 우위"; cls = "up"; icon = "📈";
+      outlook = "단기선이 장기선 위 + 최근 상승 모멘텀 → 추세 유지 시 추가 상승 가능";
+    } else if (down) {
+      dir = "하락(원화 강세) 우위"; cls = "down"; icon = "📉";
+      outlook = "단기선이 장기선 아래 + 최근 하락 모멘텀 → 추세 유지 시 추가 하락 가능";
+    } else {
+      dir = "방향 혼조·횡보"; cls = "flat"; icon = "➖";
+      outlook = "이평선과 모멘텀 방향이 엇갈림 → 뚜렷한 추세보다 박스권 가능성";
+    }
+    const volWord = volPct < 0.8 ? "낮음" : volPct < 1.8 ? "보통" : "높음";
+    const posWord = pos > 0.8 ? "최근 고점 부근" : pos < 0.2 ? "최근 저점 부근" : "중간대";
+
+    const text = `${icon} 30일 ${pct >= 0 ? "+" : ""}${pct.toFixed(1)}% · ${dir} · 변동성 ${volWord}`;
+    const detail =
+      `${outlook}. 현재 ${posWord}(고점 대비 ${((last - max) / max * 100).toFixed(1)}%, ` +
+      `저점 대비 +${((last - min) / min * 100).toFixed(1)}%), 일변동성 약 ${volPct.toFixed(2)}%.`;
+    return { text, cls, detail };
+  }
+
+  // 전체 통화의 흐름 코멘트를 한 번 계산 (가격 갱신과 분리 — 시계열은 하루 단위로만 변함)
+  async function loadComments() {
+    await Promise.all(CURRENCIES.map(async cur => {
+      try {
+        const series = await fetchHistory(cur, 30);
+        commentMap[cur.code] = analyze(series);
+      } catch (e) { /* 일부 실패는 무시 */ }
+    }));
+    if (lastRatesMap) render(lastRatesMap);          // 코멘트 채워서 카드 재렌더
+    if (selectedCode) updateChartComment(selectedCode);
+  }
+
+  function updateChartComment(code) {
+    const el = $("chartComment");
+    const cm = commentMap[code];
+    if (!cm) { el.style.display = "none"; return; }
+    el.style.display = "";
+    el.className = "chart-comment";
+    el.innerHTML = `<b class="comment ${cm.cls}" style="font-size:13px">${cm.text}</b><br>${cm.detail}`;
+  }
+
+  function renderChart(cur, series) {
+    const values = series.map(p => p.value);
+    const min = Math.min(...values), max = Math.max(...values);
+    const first = values[0], last = values[values.length - 1];
+    const diff = last - first, pct = (diff / first) * 100;
+    const cls = diff > 0 ? "up" : diff < 0 ? "down" : "flat";
+    const arrow = diff > 0 ? "▲" : diff < 0 ? "▼" : "—";
+    const fmt = (n) => n.toLocaleString("ko-KR", { maximumFractionDigits: 2 });
+
+    $("chartStats").innerHTML =
+      `현재 <b>${fmt(last)}원</b>` +
+      `<span>기간 변동 <b class="${cls}" style="color:var(--${cls === 'flat' ? 'muted' : cls})">${arrow} ${fmt(Math.abs(diff))}원 (${pct.toFixed(2)}%)</b></span>` +
+      `<span>최고 <b>${fmt(max)}</b></span>` +
+      `<span>최저 <b>${fmt(min)}</b></span>`;
+
+    // SVG 좌표 계산
+    const W = 800, H = 280, padL = 64, padR = 16, padT = 16, padB = 28;
+    const plotW = W - padL - padR, plotH = H - padT - padB;
+    const range = (max - min) || 1;
+    const x = (i) => padL + (series.length === 1 ? plotW / 2 : (i / (series.length - 1)) * plotW);
+    const y = (v) => padT + plotH - ((v - min) / range) * plotH;
+
+    const linePts = series.map((p, i) => `${x(i).toFixed(1)},${y(p.value).toFixed(1)}`).join(" ");
+    const areaPts = `${padL},${padT + plotH} ${linePts} ${(padL + plotW)},${padT + plotH}`;
+
+    // y축 눈금 5개
+    let yAxis = "";
+    for (let k = 0; k <= 4; k++) {
+      const v = min + (range * k / 4);
+      const yy = y(v);
+      yAxis += `<line class="grid-line" x1="${padL}" y1="${yy.toFixed(1)}" x2="${W - padR}" y2="${yy.toFixed(1)}"/>`;
+      yAxis += `<text class="axis-label" x="${padL - 8}" y="${(yy + 4).toFixed(1)}" text-anchor="end">${fmt(v)}</text>`;
+    }
+    // x축 라벨 (시작 / 끝)
+    const xAxis =
+      `<text class="axis-label" x="${padL}" y="${H - 8}" text-anchor="start">${series[0].date}</text>` +
+      `<text class="axis-label" x="${W - padR}" y="${H - 8}" text-anchor="end">${series[series.length - 1].date}</text>`;
+
+    $("chartArea").innerHTML = `
+      <svg class="chart-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMidYMid meet">
+        ${yAxis}
+        <polygon class="area" points="${areaPts}"/>
+        <polyline class="line" points="${linePts}"/>
+        <circle class="dot-last" cx="${x(series.length - 1).toFixed(1)}" cy="${y(last).toFixed(1)}" r="4"/>
+        ${xAxis}
+      </svg>`;
+  }
+
+  /* ===== 환전 가이드 탭 ===== */
+  // 현찰 매매 스프레드(%) — 은행 고시 기준 대략값(통화·은행별로 다름)
+  const CASH_SPREAD = { USD:1.75, EUR:1.97, JPY:1.97, GBP:1.97, AUD:1.97, CAD:1.97, CHF:1.97, CNY:5.0, HKD:3.5, SGD:3.5 };
+  // 트래블 체크카드 환전수수료(%) — 주요통화 무료, 일부 소액
+  const CARD_FEE   = { USD:0, EUR:0, JPY:0, GBP:0, AUD:0, CAD:0, CHF:0.5, HKD:0.5, SGD:0.5, CNY:0.5 };
+  const PRIVATE_OK = ["USD", "JPY"]; // 명동 등 사설환전소가 유리한 현찰 통화
+
+  function buildMethods(code, prefPct) {
+    const spread = CASH_SPREAD[code] != null ? CASH_SPREAD[code] : 3.0;
+    const cardFee = CARD_FEE[code];
+    const pref = Math.max(0, Math.min(100, prefPct)) / 100;
+    const m = [];
+    // eff = 매매기준율 대비 추가 비용률(%)
+    m.push({ name: "공항 환전",        tag: "현찰 · 우대 0%",          eff: spread,            use: ["cash"] });
+    m.push({ name: "은행 영업점",      tag: "현찰 · 우대 50%",         eff: spread * 0.5,      use: ["cash"] });
+    m.push({ name: "은행 모바일 환전", tag: `현찰 · 우대 ${prefPct}%`, eff: spread * (1 - pref), use: ["cash"] });
+    if (PRIVATE_OK.includes(code))
+      m.push({ name: "사설 환전소(명동 등)", tag: "현찰 · USD/JPY 유리", eff: spread * 0.1, use: ["cash"] });
+    if (cardFee != null)
+      m.push({ name: "트래블 체크카드", tag: cardFee === 0 ? "결제·ATM · 수수료 0%" : `결제·ATM · 수수료 ${cardFee}%`,
+               eff: cardFee, use: ["card", "cash"], note: "현지 ATM 인출 시 기기 수수료 별도" });
+    return m;
+  }
+
+  const exCurSel = $("exCurrency");
+  function initExchange() {
+    exCurSel.innerHTML = CURRENCIES.map(c => `<option value="${c.code}">${c.flag} ${c.name} (${c.code})</option>`).join("");
+    ["change", "input"].forEach(ev => {
+      ["exCurrency", "exAmount", "exPurpose", "exPref"].forEach(id => $(id).addEventListener(ev, renderExchange));
+    });
+    $("exCalcBtn").onclick = renderExchange;
+  }
+
+  function renderExchange() {
+    const code = exCurSel.value;
+    const cur = CURRENCIES.find(c => c.code === code);
+    const amount = parseFloat($("exAmount").value) || 0;
+    const purpose = $("exPurpose").value;
+    const pref = parseFloat($("exPref").value) || 0;
+    const out = $("exResult");
+
+    if (!lastRatesMap || lastRatesMap[code] == null) {
+      out.innerHTML = `<div class="best-banner">환율을 불러오는 중입니다. 대시보드 탭에서 "지금 갱신" 후 다시 시도하세요.</div>`;
+      renderBestGrid(); return;
+    }
+    const ratePerUnit = lastRatesMap[code] / cur.per; // 1 단위당 원(매매기준율 근사)
+    const fmt = n => Math.round(n).toLocaleString("ko-KR");
+
+    let rows = buildMethods(code, pref).map(m => ({
+      ...m,
+      suitable: m.use.includes(purpose),
+      cost: amount * ratePerUnit * (1 + m.eff / 100)
+    }));
+    const airport = rows.find(r => r.name === "공항 환전");
+    const baseCost = airport ? airport.cost : Math.max(...rows.map(r => r.cost));
+    const suitable = rows.filter(r => r.suitable);
+    const best = suitable.reduce((a, b) => (b.cost < a.cost ? b : a), suitable[0]);
+    rows.sort((a, b) => a.cost - b.cost);
+
+    const saveVsAirport = baseCost - best.cost;
+    out.innerHTML = `
+      <div class="best-banner">
+        <div class="big">✅ 가장 유리: ${best.name}</div>
+        <div class="sub">${amount.toLocaleString("ko-KR")} ${code} 기준 약 <b style="color:var(--text)">${fmt(best.cost)}원</b>
+          · 공항 환전 대비 <b class="save">${fmt(saveVsAirport)}원 절약</b> (${(saveVsAirport / baseCost * 100).toFixed(1)}%)
+          ${best.note ? " · " + best.note : ""}</div>
+      </div>
+      <table class="cmp">
+        <thead><tr><th>방법</th><th>적용환율(1단위)</th><th>예상 비용</th><th>공항 대비 절약</th></tr></thead>
+        <tbody>
+          ${rows.map(r => {
+            const eRate = ratePerUnit * (1 + r.eff / 100);
+            const save = baseCost - r.cost;
+            const isBest = r.name === best.name;
+            const dim = r.suitable ? "" : "opacity:.45";
+            return `<tr class="${isBest ? "best" : ""}" style="${dim}">
+              <td><span class="method">${r.name}</span><span class="tag">${r.tag}${r.suitable ? "" : " · 이 목적엔 부적합"}</span></td>
+              <td style="font-variant-numeric:tabular-nums">${eRate.toLocaleString("ko-KR", {maximumFractionDigits: 2})}원</td>
+              <td style="font-variant-numeric:tabular-nums">${fmt(r.cost)}원</td>
+              <td class="save">${save > 0 ? fmt(save) + "원" : "-"}</td>
+            </tr>`;
+          }).join("")}
+        </tbody>
+      </table>
+      <p style="font-size:12px;color:var(--muted);margin-top:10px">
+        ※ 매매기준율은 현재 대시보드 환율(${cur.flag} ${code})을 사용했고, 스프레드·우대율은 은행 고시 기준 <b>대략값</b>입니다.
+        실제 적용 환율·수수료는 은행/카드사마다 다르니 환전 직전 확인하세요.</p>`;
+    renderBestGrid();
+  }
+
+  function renderBestGrid() {
+    $("bestGrid").innerHTML = CURRENCIES.map(c => {
+      const all = buildMethods(c.code, parseFloat($("exPref").value) || 90);
+      const best = all.reduce((a, b) => (b.eff < a.eff ? b : a), all[0]);
+      const dual = (CASH_SPREAD[c.code] || 0) >= 4 ? "스프레드 큼 → USD 경유 이중환전도 고려" : "주요 통화 · 직접 환전 유리";
+      return `<div class="bestcard">
+        <div class="c">${c.flag} ${c.name} (${c.code})</div>
+        <div class="m">${best.name}</div>
+        <div class="d">추가비용 약 ${best.eff.toFixed(2)}% · ${dual}</div>
+      </div>`;
+    }).join("");
+  }
+
+  /* ===== 환율 뉴스 탭 (Google 뉴스 RSS + CORS 프록시) ===== */
+  const NEWS_PROXIES = [
+    u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
+    u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
+  ];
+  const NEWS_QUERIES = ["환율", "원/달러 환율", "엔화 환율", "환율 전망", "한국은행 기준금리"];
+  let newsQuery = NEWS_QUERIES[0];
+  let newsLoaded = false;
+
+  function gnewsUrl(q) {
+    return `https://news.google.com/rss/search?q=${encodeURIComponent(q + " when:7d")}&hl=ko&gl=KR&ceid=KR:ko`;
+  }
+  // 프록시가 모두 실패할 때 안내할 사람이 직접 여는 Google 뉴스 검색 페이지
+  function gnewsWebUrl(q) {
+    return `https://news.google.com/search?q=${encodeURIComponent(q)}&hl=ko&gl=KR&ceid=KR:ko`;
+  }
+  function timeAgo(dateStr) {
+    const d = new Date(dateStr);
+    if (isNaN(d)) return "";
+    const min = Math.floor((new Date() - d) / 60000);
+    if (min < 60) return `${min}분 전`;
+    if (min < 1440) return `${Math.floor(min / 60)}시간 전`;
+    return `${Math.floor(min / 1440)}일 전`;
+  }
+
+  function renderNewsChips() {
+    $("newsChips").innerHTML = NEWS_QUERIES.map(q =>
+      `<span class="chip ${q === newsQuery ? "active" : ""}" data-q="${q}">${q}</span>`).join("") +
+      `<span class="chip" id="newsRefresh">↻ 새로고침</span>`;
+    document.querySelectorAll("#newsChips .chip[data-q]").forEach(ch => {
+      ch.onclick = () => { newsQuery = ch.dataset.q; loadNews(true); };
+    });
+    $("newsRefresh").onclick = () => loadNews(true);
+  }
+
+  async function fetchViaProxy(targetUrl) {
+    let lastErr;
+    for (const proxy of NEWS_PROXIES) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000); // 8초 타임아웃 → 다음 프록시로
+      try {
+        const res = await fetch(proxy(targetUrl), { signal: ctrl.signal });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        const text = await res.text();
+        if (text && text.includes("<item")) return text;
+        throw new Error("빈 응답");
+      } catch (e) { lastErr = e; }
+      finally { clearTimeout(timer); }
+    }
+    throw lastErr || new Error("프록시 실패");
+  }
+
+  async function loadNews(force) {
+    renderNewsChips();
+    const box = $("newsList");
+    box.innerHTML = `<div class="news-loading">📰 "${newsQuery}" 관련 최신 기사를 불러오는 중…</div>`;
+    try {
+      const xml = await fetchViaProxy(gnewsUrl(newsQuery));
+      const doc = new DOMParser().parseFromString(xml, "text/xml");
+      const items = [...doc.querySelectorAll("item")].slice(0, 20).map(it => {
+        const source = (it.getElementsByTagName("source")[0]?.textContent || "").trim();
+        let title = (it.querySelector("title")?.textContent || "").trim();
+        if (source && title.endsWith(" - " + source)) title = title.slice(0, -(source.length + 3)).trim();
+        title = title.replace(/\s[-–—]\s\S{1,15}$/, "").trim(); // 남은 출처 접미사 보조 제거
+        return { title, source, link: it.querySelector("link")?.textContent || "#", date: it.querySelector("pubDate")?.textContent || "" };
+      });
+      if (!items.length) { box.innerHTML = `<div class="news-loading">관련 기사를 찾지 못했습니다.</div>`; return; }
+      box.innerHTML = items.map(n => `
+        <div class="news-item">
+          <a href="${n.link}" target="_blank" rel="noopener noreferrer">${n.title}</a>
+          <div class="meta">${n.source ? n.source + " · " : ""}${timeAgo(n.date)}</div>
+        </div>`).join("");
+      newsLoaded = true;
+    } catch (e) {
+      box.innerHTML = `<div class="news-loading">뉴스 프록시가 일시적으로 불안정합니다. ↻ 새로고침을 다시 누르거나, 아래 링크로 확인하세요.<br>
+        <a href="${gnewsWebUrl(newsQuery)}" target="_blank" rel="noopener noreferrer">👉 Google 뉴스에서 "${newsQuery}" 직접 보기</a></div>`;
+    }
+  }
+
+  /* ===== 출국제한국가 탭 (외교부 여행경보) ===== */
+  // 외교부 발표 기준. 정세에 따라 수시 변동 → 출국 전 0404.go.kr 확인.
+  const BAN_COUNTRIES = [ // 4단계 여행금지 (전역)
+    { flag: "🇸🇴", name: "소말리아", lat: 5.15, lng: 46.2,
+      reason: "장기 내전 · 무장단체 알샤바브 테러 · 납치 · 해적",
+      desc: "중앙정부 통제력이 약하고 알샤바브의 폭탄·총기 테러와 외국인 납치가 빈번합니다. 인근 해역은 해적 위험도 높습니다." },
+    { flag: "🇦🇫", name: "아프가니스탄", lat: 33.9, lng: 67.7,
+      reason: "탈레반 정권 · 테러 · 납치 · 무력충돌",
+      desc: "탈레반 집권 이후에도 IS-K 등에 의한 자폭 테러가 이어지고, 외국인 대상 납치·구금 위험이 매우 큽니다." },
+    { flag: "🇮🇶", name: "이라크", lat: 33.2, lng: 43.7,
+      reason: "IS 잔존세력 테러 · 무장충돌 · 납치",
+      desc: "IS 잔당의 테러와 무장세력 간 충돌이 계속되며, 외국인 납치·피랍 사례가 발생해 전 지역이 여행금지입니다." },
+    { flag: "🇾🇪", name: "예멘", lat: 15.5, lng: 48.5,
+      reason: "내전(후티 반군) · 공습 · 테러 · 납치",
+      desc: "정부군과 후티 반군의 내전이 장기화되어 공습·교전이 잦고, 콜레라 등 보건 위기와 납치 위험이 큽니다." },
+    { flag: "🇱🇾", name: "리비아", lat: 26.3, lng: 17.2,
+      reason: "내전 · 무장세력 충돌 · 치안 붕괴",
+      desc: "동·서부 세력 대립으로 무력충돌이 반복되고 치안·행정이 마비된 지역이 많아 신변안전을 보장하기 어렵습니다." },
+    { flag: "🇺🇦", name: "우크라이나", lat: 48.4, lng: 31.2,
+      reason: "러시아와 전면전(2022~) · 미사일·드론 공격",
+      desc: "전국적으로 미사일·드론 공습 위험이 있고 전선 인근은 직접적 교전 지역입니다. 영공·국경이 통제되어 있습니다." },
+    { flag: "🇸🇩", name: "수단", lat: 15.5, lng: 30.2,
+      reason: "정부군-신속지원군(RSF) 내전(2023~)",
+      desc: "2023년 발발한 내전으로 수도 하르툼 등에서 시가전·약탈이 벌어졌고, 대규모 피란과 인도적 위기가 진행 중입니다." },
+    { flag: "🇭🇹", name: "아이티", lat: 18.97, lng: -72.3,
+      reason: "무장 갱단 장악 · 치안 붕괴 · 납치",
+      desc: "수도 포르토프랭스 상당 지역을 갱단이 장악해 총격·납치가 일상화됐고 공항·항만 기능이 마비된 바 있습니다." },
+    { flag: "🇲🇱", name: "말리", lat: 17.6, lng: -3.99,
+      reason: "이슬람 무장단체 테러 · 북부 분쟁",
+      desc: "북부·중부를 중심으로 무장단체의 테러·납치가 빈번하며, 정정 불안과 외국인 대상 위협이 지속됩니다." },
+  ];
+
+  const LEVEL3_COUNTRIES = [ // 3단계 철수권고(적색경보) 주요 국가 — 전체·최신은 0404.go.kr
+    { flag: "🇱🇧", name: "레바논", lat: 33.85, lng: 35.86,
+      reason: "헤즈볼라-이스라엘 교전 여파 · 무력충돌",
+      desc: "남부 접경 일부는 여행금지(4단계), 그 외 전역은 철수권고입니다. 공습·교전 재발 위험이 있습니다." },
+    { flag: "🇮🇷", name: "이란", lat: 32.4, lng: 53.7,
+      reason: "미국·이스라엘과 군사 긴장 고조 · 반정부 시위",
+      desc: "2025~2026년 군사적 충돌 위기와 반정부 시위로 치안이 불안정합니다. 외국인 구금 위험도 있습니다." },
+    { flag: "🇧🇭", name: "바레인", lat: 26.0, lng: 50.55,
+      reason: "2026 중동 위기 — 역내 무력충돌 확산 우려",
+      desc: "2026.3.8 조정으로 전역에 철수권고가 발령되었습니다. 정세에 따라 변동될 수 있습니다." },
+    { flag: "🇦🇪", name: "아랍에미리트(UAE)", lat: 23.8, lng: 54.0,
+      reason: "2026 중동 위기 — 역내 무력충돌 확산 우려",
+      desc: "2026.3.8 조정으로 전역에 철수권고가 발령되었습니다. 두바이·아부다비 포함." },
+    { flag: "🇶🇦", name: "카타르", lat: 25.3, lng: 51.2,
+      reason: "2026 중동 위기 — 역내 무력충돌 확산 우려",
+      desc: "2026.3.8 조정으로 전역에 철수권고가 발령되었습니다." },
+    { flag: "🇰🇼", name: "쿠웨이트", lat: 29.3, lng: 47.6,
+      reason: "2026 중동 위기 — 역내 무력충돌 확산 우려",
+      desc: "2026.3.8 조정으로 전역에 철수권고가 발령되었습니다." },
+    { flag: "🇴🇲", name: "오만", lat: 21.5, lng: 56.0,
+      reason: "2026 중동 위기 — 역내 무력충돌 확산 우려",
+      desc: "2026.3.8 조정으로 전역에 철수권고가 발령되었습니다." },
+    { flag: "🇸🇸", name: "남수단", lat: 7.0, lng: 30.0,
+      reason: "내전 · 종족 분쟁 · 치안 붕괴",
+      desc: "독립 이후 무력충돌과 종족 갈등이 지속되며 치안·식량 위기가 심각합니다." },
+    { flag: "🇧🇫", name: "부르키나파소", lat: 12.2, lng: -1.6,
+      reason: "이슬람 무장단체 테러 확산 · 정정 불안",
+      desc: "사헬 지역 무장단체의 테러·납치가 전국으로 확산되어 신변 위험이 큽니다." },
+    { flag: "🇨🇫", name: "중앙아프리카공화국", lat: 6.6, lng: 20.9,
+      reason: "무장세력 충돌 · 치안 불안",
+      desc: "정부군과 반군 간 충돌이 이어지고 수도 외곽의 치안이 매우 불안정합니다." },
+    { flag: "🇹🇩", name: "차드", lat: 15.4, lng: 18.7,
+      reason: "정정 불안 · 무장충돌 · 접경 위험",
+      desc: "정치 불안정과 인접국 분쟁 여파로 무장충돌·테러 위험이 상존합니다." },
+    { flag: "🇻🇪", name: "베네수엘라", lat: 6.42, lng: -66.6,
+      reason: "치안 붕괴 · 정정 불안 · 강력범죄",
+      desc: "강력범죄·납치율이 매우 높고 의료·전력 등 기반시설이 불안정합니다. 일부 접경지는 더 위험합니다." },
+  ];
+
+  // 지도에 표시할 4단계 '지정 지역'(전역이 아닌 일부 지역)
+  const BAN_REGION_POINTS = [
+    { name: "팔레스타인 가자지구", lat: 31.4, lng: 34.37 },
+    { name: "시리아 일부", lat: 35.0, lng: 38.5 },
+    { name: "미얀마 일부", lat: 21.9, lng: 95.96 },
+    { name: "라오스 골든트라이앵글 경제특구", lat: 20.35, lng: 100.08 },
+    { name: "니제르(수도 제외)", lat: 17.6, lng: 8.08 },
+    { name: "이스라엘·레바논 접경", lat: 33.1, lng: 35.57 },
+    { name: "콩고민주공화국 일부", lat: -1.0, lng: 29.2 },
+  ];
+
+  const BAN_REGIONS =
+    "필리핀 일부, 러시아 일부, 벨라루스 일부, 아르메니아·아제르바이잔 접경, 팔레스타인 가자지구, 미얀마 일부, " +
+    "라오스 골든트라이앵글 경제특구, 이스라엘·레바논 접경, 레바논 일부, 콩고민주공화국 일부, 캄보디아 일부, " +
+    "니제르(수도 니아메 제외), 베네수엘라 일부, 시리아 일부 — 등 약 14개 지역이 여행금지로 지정돼 있습니다. " +
+    "※ 치안이 개선된 골란고원 일부 지역은 3단계(철수권고)로 하향 조정되었습니다.";
+
+  function banCardHtml(c, level) {
+    const badge = level === 4 ? `<span class="lvl">4단계 여행금지</span>` : `<span class="lvl lvl3">3단계 철수권고</span>`;
+    const cls = level === 4 ? "ban-card" : "ban-card lv3";
+    return `<div class="${cls}">
+      <div class="name"><span class="flag">${c.flag}</span>${c.name}${badge}</div>
+      <div class="reason">사유 · ${c.reason}</div>
+      <div class="desc">${c.desc}</div>
+      <button class="newsbtn" data-name="${c.name}">📰 관련 기사 보기</button>
+      <div class="cnews"></div>
+    </div>`;
+  }
+
+  let banRendered = false;
+  function renderBan() {
+    if (!banRendered) {
+      $("banRegions").textContent = BAN_REGIONS;
+      $("banGrid").innerHTML = BAN_COUNTRIES.map(c => banCardHtml(c, 4)).join("");
+      $("banGrid3").innerHTML = LEVEL3_COUNTRIES.map(c => banCardHtml(c, 3)).join("");
+      document.querySelectorAll("#tab-ban .newsbtn").forEach(btn => {
+        btn.onclick = () => loadCountryNews(btn.dataset.name, btn.parentElement.querySelector(".cnews"), btn);
+      });
+      banRendered = true;
+    }
+    initBanMap(); // 탭이 보일 때 지도 초기화/리사이즈
+  }
+
+  async function loadCountryNews(name, box, btn) {
+    if (box.style.display === "flex") { box.style.display = "none"; btn.textContent = "📰 관련 기사 보기"; return; }
+    box.style.display = "flex";
+    btn.textContent = "▲ 기사 접기";
+    box.innerHTML = `<span class="m">불러오는 중…</span>`;
+    try {
+      const xml = await fetchViaProxy(gnewsUrl(name + " 여행"));
+      const doc = new DOMParser().parseFromString(xml, "text/xml");
+      const items = [...doc.querySelectorAll("item")].slice(0, 5).map(it => {
+        const source = (it.getElementsByTagName("source")[0]?.textContent || "").trim();
+        let title = (it.querySelector("title")?.textContent || "").trim();
+        if (source && title.endsWith(" - " + source)) title = title.slice(0, -(source.length + 3)).trim();
+        title = title.replace(/\s[-–—]\s\S{1,15}$/, "").trim();
+        return { title, source, link: it.querySelector("link")?.textContent || "#", date: it.querySelector("pubDate")?.textContent || "" };
+      });
+      const fallback = `<a href="${gnewsWebUrl(name + " 여행금지")}" target="_blank" rel="noopener noreferrer">👉 Google 뉴스에서 더 보기</a>`;
+      if (!items.length) { box.innerHTML = `<span class="m">불러온 기사가 없습니다.</span>${fallback}`; return; }
+      box.innerHTML = items.map(n =>
+        `<a href="${n.link}" target="_blank" rel="noopener noreferrer">• ${n.title}<span class="m"> — ${n.source || ""} ${timeAgo(n.date)}</span></a>`
+      ).join("") + fallback;
+    } catch (e) {
+      box.innerHTML = `<span class="m">실시간 기사 로딩 실패 — 아래 링크로 확인하세요.</span>` +
+        `<a href="${gnewsWebUrl(name + " 여행금지")}" target="_blank" rel="noopener noreferrer">👉 Google 뉴스에서 "${name} 여행금지" 보기</a>`;
+    }
+  }
+
+  /* ----- 지정 지역 상세 지도 (Leaflet, CDN) ----- */
+  let banMap = null, leafletLoading = null;
+  function ensureLeaflet() {
+    if (window.L) return Promise.resolve(true);
+    if (leafletLoading) return leafletLoading;
+    leafletLoading = new Promise((resolve) => {
+      const css = document.createElement("link");
+      css.rel = "stylesheet";
+      css.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(css);
+      const js = document.createElement("script");
+      js.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+      js.onload = () => resolve(true);
+      js.onerror = () => resolve(false);
+      document.head.appendChild(js);
+    });
+    return leafletLoading;
+  }
+
+  async function initBanMap() {
+    const ok = await ensureLeaflet();
+    const el = $("banMap");
+    if (!ok || !window.L) {
+      el.innerHTML = `<div class="map-fail">지도를 불러오지 못했습니다(인터넷/CDN 확인). 아래 국가 목록과 지정지역 텍스트를 참고하세요.</div>`;
+      return;
+    }
+    if (banMap) { setTimeout(() => banMap.invalidateSize(), 100); return; }
+
+    banMap = L.map(el, { center: [20, 35], zoom: 2, scrollWheelZoom: true, worldCopyJump: true });
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains: "abcd", maxZoom: 10,
+    }).addTo(banMap);
+
+    const addMarker = (lat, lng, name, sub, color) => {
+      L.circleMarker([lat, lng], {
+        radius: 8, color: color, weight: 2, fillColor: color, fillOpacity: 0.55,
+      }).addTo(banMap).bindPopup(`<b>${name}</b><br>${sub}`);
+    };
+    BAN_COUNTRIES.forEach(c => addMarker(c.lat, c.lng, c.flag + " " + c.name, "4단계 여행금지 · " + c.reason, "#f87171"));
+    BAN_REGION_POINTS.forEach(r => addMarker(r.lat, r.lng, r.name, "4단계 여행금지 지정 지역", "#f87171"));
+    LEVEL3_COUNTRIES.forEach(c => addMarker(c.lat, c.lng, c.flag + " " + c.name, "3단계 철수권고 · " + c.reason, "#fbbf24"));
+
+    setTimeout(() => banMap.invalidateSize(), 150);
+  }
+
+  window.switchTab = function (t) {
+    const map = { dash: "tab-dashboard", ex: "tab-exchange", news: "tab-news", ban: "tab-ban" };
+    Object.entries(map).forEach(([k, id]) => { $(id).style.display = (k === t) ? "" : "none"; });
+    $("tabBtnDash").classList.toggle("active", t === "dash");
+    $("tabBtnEx").classList.toggle("active", t === "ex");
+    $("tabBtnNews").classList.toggle("active", t === "news");
+    $("tabBtnBan").classList.toggle("active", t === "ban");
+    if (t === "ex") renderExchange();
+    if (t === "news" && !newsLoaded) loadNews();
+    if (t === "ban") renderBan();
+  };
+
+  // 키 없이도 동작하므로 열자마자 자동 시작
+  initExchange();
+  fetchRates().then(() => { if (!selectedCode) selectCurrency("USD"); });
+  loadComments();
+  scheduleTimer();
+</script>
+</body>
+</html>

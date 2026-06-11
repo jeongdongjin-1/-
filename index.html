@@ -1522,8 +1522,9 @@
     if (type === "yt") {
       title.textContent = "YouTube"; open.href = "https://www.youtube.com/watch?v=" + data.id;
       body.style.background = "#000";
-      body.innerHTML = `<iframe class="mv-frame" src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0&playsinline=1" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>` +
+      body.innerHTML = `<iframe id="modalYtFrame" class="mv-frame" src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>` +
         `<div class="modal-note">재생 오류가 나면(소유자가 임베드 차단한 영상 등) 위 <b>↗ 새 탭에서 열기</b>를 눌러주세요.</div>`;
+      watchYtErrors("modalYtFrame", () => { body.innerHTML = ytFallbackHtml(data.id); });
     } else if (type === "vid") {
       title.textContent = hostOf(data.url); open.href = data.url; body.style.background = "#000";
       body.innerHTML = `<video class="mv-frame" src="${esc(data.url)}" controls autoplay playsinline></video>` +
@@ -1546,7 +1547,7 @@
     const wrap = $("chatPlayer");
     const openHref = type === "yt" ? "https://www.youtube.com/watch?v=" + data.id : data.url;
     const frame = type === "yt"
-      ? `<iframe src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0&playsinline=1" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`
+      ? `<iframe id="dockYtFrame" src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`
       : `<video src="${esc(data.url)}" controls autoplay playsinline></video>`;
     wrap.innerHTML =
       `<div class="cp-head"><span class="cp-t">${type === "yt" ? "▶ YouTube" : "▶ " + esc(hostOf(data.url))}</span>` +
@@ -1561,11 +1562,44 @@
     $("cpExpand").onclick = () => { closeDock(); openMedia(type, data); };
     const v = wrap.querySelector("video");
     if (v) v.onerror = () => { wrap.querySelector(".cp-frame").innerHTML = `<div class="modal-note" style="padding:18px;text-align:center">재생할 수 없는 동영상입니다. ↗ 새 탭에서 열어주세요.</div>`; };
+    if (type === "yt") watchYtErrors("dockYtFrame", () => {
+      const f = wrap.querySelector(".cp-frame"); if (f) f.innerHTML = ytFallbackHtml(data.id);
+    });
     $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
   }
   function closeDock() {
     $("chatPlayer").innerHTML = ""; $("chatPlayer").style.display = "none";
     $("chatRoom").classList.remove("playing");
+  }
+
+  // YouTube IFrame API: 임베드 차단(에러 101/150 등) 감지용
+  let ytApiP = null;
+  function ytApiReady() {
+    if (window.YT && window.YT.Player) return Promise.resolve(true);
+    if (ytApiP) return ytApiP;
+    ytApiP = new Promise((res) => {
+      const prev = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => { if (prev) try { prev(); } catch (e) {} res(true); };
+      const s = document.createElement("script");
+      s.src = "https://www.youtube.com/iframe_api";
+      s.onerror = () => res(false);
+      document.head.appendChild(s);
+    });
+    return ytApiP;
+  }
+  async function watchYtErrors(iframeId, onBlocked) {
+    const ok = await ytApiReady();
+    if (!ok || !window.YT || !window.YT.Player) return;
+    try {
+      new window.YT.Player(iframeId, {
+        events: { onError: (e) => { if ([2, 5, 100, 101, 150].includes(e.data)) onBlocked(); } },
+      });
+    } catch (e) {}
+  }
+  function ytFallbackHtml(videoId) {
+    return `<div class="modal-note" style="padding:24px;text-align:center;line-height:1.8">` +
+      `이 영상은 유튜브가 외부 사이트에서의 재생을 막아둔 영상입니다(쇼츠·음악 영상에서 흔함).<br>` +
+      `<a href="https://www.youtube.com/watch?v=${videoId}" target="_blank" rel="noopener noreferrer" style="font-weight:700;font-size:15px">▶ 유튜브에서 보기</a></div>`;
   }
 
   function renderMsg(m) {

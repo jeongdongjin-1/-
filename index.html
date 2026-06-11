@@ -4,6 +4,22 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>실시간 환율 대시보드</title>
+<meta name="description" content="실시간 환율, 추이 차트, 환전 유리한 방법, 환율 뉴스, 출국제한국가(외교부 여행경보)를 한 곳에서 보는 무료 대시보드." />
+<meta name="theme-color" content="#0f172a" />
+<!-- 소셜 공유 미리보기 (Open Graph / Twitter) -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content="실시간 환율 대시보드" />
+<meta property="og:description" content="실시간 환율·차트·환전 가이드·뉴스·출국제한국가를 한 곳에서." />
+<meta property="og:url" content="https://jeongdongjin-1.github.io/-/" />
+<meta property="og:image" content="https://jeongdongjin-1.github.io/-/icon.svg" />
+<meta name="twitter:card" content="summary" />
+<meta name="twitter:title" content="실시간 환율 대시보드" />
+<meta name="twitter:description" content="실시간 환율·차트·환전 가이드·뉴스·출국제한국가를 한 곳에서." />
+<!-- 파비콘 (인라인 SVG) -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f172a'/%3E%3Ctext x='32' y='45' font-size='38' text-anchor='middle' fill='%2338bdf8' font-family='sans-serif' font-weight='bold'%3E%E2%82%A9%3C/text%3E%3C/svg%3E" />
+<!-- PWA -->
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icon.svg" />
 <style>
   :root {
     --bg: #0f172a;
@@ -224,6 +240,30 @@
     border:1px solid var(--border); border-radius:12px; padding:16px; font-size:13px; line-height:1.9; color: var(--muted); }
   footer { max-width: 1100px; margin: 28px auto 0; font-size: 12px; color: var(--muted); line-height: 1.6; }
   a { color: var(--accent); }
+  /* 모바일 반응형 */
+  @media (max-width: 640px) {
+    body { padding: 12px; }
+    h1 { font-size: 19px; }
+    header { margin-bottom: 16px; }
+    /* 탭: 줄바꿈 대신 가로 스크롤 */
+    .tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 2px; }
+    .tabs::-webkit-scrollbar { height: 0; }
+    .tabs button { padding: 9px 12px; font-size: 13px; white-space: nowrap; flex: 0 0 auto; }
+    /* 컨트롤/계산기: 세로 정렬, 입력 꽉 채움 */
+    .controls, .ex-calc { padding: 12px; gap: 8px; }
+    .controls input, .controls select, .ex-calc input, .ex-calc select { width: 100%; }
+    .ex-calc .field { width: 100%; }
+    input#apiKey { width: 100%; }
+    /* 비교표: 가로 스크롤 */
+    .ex-panel { overflow-x: auto; }
+    table.cmp { min-width: 480px; }
+    table.cmp th, table.cmp td { padding: 8px; font-size: 13px; }
+    /* 지도 높이 축소 */
+    #banMap { height: 320px; }
+    /* 그리드 1열 위주 */
+    .grid, .bestgrid, .ban-grid, .bestcard, .tips { grid-template-columns: 1fr; }
+    h3.sec { font-size: 15px; }
+  }
 </style>
 </head>
 <body>
@@ -766,7 +806,8 @@
     }).join("");
   }
 
-  /* ===== 환율 뉴스 탭 (Google 뉴스 RSS + CORS 프록시) ===== */
+  /* ===== 환율 뉴스 탭 (Google 뉴스 RSS) ===== */
+  // 브라우저에서 corsproxy가 가장 안정적 → 1순위. 실패 시 다른 프록시로 폴백.
   const NEWS_PROXIES = [
     u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
     u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
@@ -801,46 +842,63 @@
     $("newsRefresh").onclick = () => loadNews(true);
   }
 
+  function fetchTimeout(url, opts, ms) {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), ms || 8000);
+    return fetch(url, { ...(opts || {}), signal: ctrl.signal }).finally(() => clearTimeout(t));
+  }
+
   async function fetchViaProxy(targetUrl) {
     let lastErr;
     for (const proxy of NEWS_PROXIES) {
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 8000); // 8초 타임아웃 → 다음 프록시로
       try {
-        const res = await fetch(proxy(targetUrl), { signal: ctrl.signal });
+        const res = await fetchTimeout(proxy(targetUrl), {}, 8000);
         if (!res.ok) throw new Error("HTTP " + res.status);
         const text = await res.text();
         if (text && text.includes("<item")) return text;
         throw new Error("빈 응답");
       } catch (e) { lastErr = e; }
-      finally { clearTimeout(timer); }
     }
     throw lastErr || new Error("프록시 실패");
+  }
+
+  function stripSource(title, source) {
+    title = (title || "").trim();
+    if (source && title.endsWith(" - " + source)) title = title.slice(0, -(source.length + 3)).trim();
+    return title.replace(/\s[-–—]\s\S{1,15}$/, "").trim();
+  }
+
+  // 통합 뉴스 로더: Google 뉴스 RSS를 CORS 프록시로 가져와 파싱. 실패 시 null.
+  async function fetchNewsItems(query, limit) {
+    try {
+      const xml = await fetchViaProxy(gnewsUrl(query));
+      const doc = new DOMParser().parseFromString(xml, "text/xml");
+      return [...doc.querySelectorAll("item")].slice(0, limit).map(it => {
+        const source = (it.getElementsByTagName("source")[0]?.textContent || "").trim();
+        return {
+          title: stripSource(it.querySelector("title")?.textContent, source),
+          source,
+          link: it.querySelector("link")?.textContent || "#",
+          date: it.querySelector("pubDate")?.textContent || "",
+        };
+      });
+    } catch (e) { return null; }
   }
 
   async function loadNews(force) {
     renderNewsChips();
     const box = $("newsList");
     box.innerHTML = `<div class="news-loading">📰 "${newsQuery}" 관련 최신 기사를 불러오는 중…</div>`;
-    try {
-      const xml = await fetchViaProxy(gnewsUrl(newsQuery));
-      const doc = new DOMParser().parseFromString(xml, "text/xml");
-      const items = [...doc.querySelectorAll("item")].slice(0, 20).map(it => {
-        const source = (it.getElementsByTagName("source")[0]?.textContent || "").trim();
-        let title = (it.querySelector("title")?.textContent || "").trim();
-        if (source && title.endsWith(" - " + source)) title = title.slice(0, -(source.length + 3)).trim();
-        title = title.replace(/\s[-–—]\s\S{1,15}$/, "").trim(); // 남은 출처 접미사 보조 제거
-        return { title, source, link: it.querySelector("link")?.textContent || "#", date: it.querySelector("pubDate")?.textContent || "" };
-      });
-      if (!items.length) { box.innerHTML = `<div class="news-loading">관련 기사를 찾지 못했습니다.</div>`; return; }
+    const items = await fetchNewsItems(newsQuery, 20);
+    if (items && items.length) {
       box.innerHTML = items.map(n => `
         <div class="news-item">
           <a href="${n.link}" target="_blank" rel="noopener noreferrer">${n.title}</a>
           <div class="meta">${n.source ? n.source + " · " : ""}${timeAgo(n.date)}</div>
         </div>`).join("");
       newsLoaded = true;
-    } catch (e) {
-      box.innerHTML = `<div class="news-loading">뉴스 프록시가 일시적으로 불안정합니다. ↻ 새로고침을 다시 누르거나, 아래 링크로 확인하세요.<br>
+    } else {
+      box.innerHTML = `<div class="news-loading">실시간 기사 로딩에 실패했습니다. ↻ 새로고침을 다시 누르거나, 아래 링크로 확인하세요.<br>
         <a href="${gnewsWebUrl(newsQuery)}" target="_blank" rel="noopener noreferrer">👉 Google 뉴스에서 "${newsQuery}" 직접 보기</a></div>`;
     }
   }
@@ -964,24 +1022,14 @@
     box.style.display = "flex";
     btn.textContent = "▲ 기사 접기";
     box.innerHTML = `<span class="m">불러오는 중…</span>`;
-    try {
-      const xml = await fetchViaProxy(gnewsUrl(name + " 여행"));
-      const doc = new DOMParser().parseFromString(xml, "text/xml");
-      const items = [...doc.querySelectorAll("item")].slice(0, 5).map(it => {
-        const source = (it.getElementsByTagName("source")[0]?.textContent || "").trim();
-        let title = (it.querySelector("title")?.textContent || "").trim();
-        if (source && title.endsWith(" - " + source)) title = title.slice(0, -(source.length + 3)).trim();
-        title = title.replace(/\s[-–—]\s\S{1,15}$/, "").trim();
-        return { title, source, link: it.querySelector("link")?.textContent || "#", date: it.querySelector("pubDate")?.textContent || "" };
-      });
-      const fallback = `<a href="${gnewsWebUrl(name + " 여행금지")}" target="_blank" rel="noopener noreferrer">👉 Google 뉴스에서 더 보기</a>`;
-      if (!items.length) { box.innerHTML = `<span class="m">불러온 기사가 없습니다.</span>${fallback}`; return; }
+    const items = await fetchNewsItems(name + " 여행", 5);
+    const fallback = `<a href="${gnewsWebUrl(name + " 여행금지")}" target="_blank" rel="noopener noreferrer">👉 Google 뉴스에서 더 보기</a>`;
+    if (items && items.length) {
       box.innerHTML = items.map(n =>
         `<a href="${n.link}" target="_blank" rel="noopener noreferrer">• ${n.title}<span class="m"> — ${n.source || ""} ${timeAgo(n.date)}</span></a>`
       ).join("") + fallback;
-    } catch (e) {
-      box.innerHTML = `<span class="m">실시간 기사 로딩 실패 — 아래 링크로 확인하세요.</span>` +
-        `<a href="${gnewsWebUrl(name + " 여행금지")}" target="_blank" rel="noopener noreferrer">👉 Google 뉴스에서 "${name} 여행금지" 보기</a>`;
+    } else {
+      box.innerHTML = `<span class="m">실시간 기사 로딩 실패 — 아래 링크로 확인하세요.</span>${fallback}`;
     }
   }
 
@@ -1047,6 +1095,13 @@
   fetchRates().then(() => { if (!selectedCode) selectCurrency("USD"); });
   loadComments();
   scheduleTimer();
+
+  // PWA: 서비스워커 등록 (http/https에서만 — file://·Electron 제외)
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").catch(() => {});
+    });
+  }
 </script>
 </body>
 </html>

@@ -1,0 +1,15 @@
+{
+  "name": "실시간 환율 대시보드",
+  "short_name": "환율 대시보드",
+  "description": "실시간 환율·차트·환전 가이드·뉴스·출국제한국가를 한 곳에서.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "lang": "ko",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

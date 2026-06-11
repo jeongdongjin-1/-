@@ -305,9 +305,9 @@
   .chat-player .cp-act { display:flex; gap:6px; flex:0 0 auto; }
   .chat-player .cp-btn { background:var(--bg); border:1px solid var(--border); border-radius:7px; width:30px; height:30px; display:inline-flex; align-items:center; justify-content:center; font-size:13px; color:var(--muted); text-decoration:none; cursor:pointer; }
   .chat-player .cp-btn:hover { border-color:var(--accent); color:var(--accent); }
-  .chat-player .cp-frame { width:100%; max-width:560px; margin:0 auto; aspect-ratio:16/9; background:#000; }
+  .chat-player .cp-frame { width:100%; max-width:300px; margin:0 auto; aspect-ratio:16/9; background:#000; }
   .chat-player .cp-frame iframe, .chat-player .cp-frame video { width:100%; height:100%; border:0; display:block; }
-  #chatRoom.playing #chatMessages { height:34vh; min-height:150px; }
+  #chatRoom.playing #chatMessages { height:42vh; min-height:160px; }
   /* 중앙 미디어 모달 */
   .modal-overlay { position:fixed; inset:0; z-index:1000; background:rgba(17,31,40,.62); display:flex; align-items:center; justify-content:center; padding:16px; }
   .modal-box { background:var(--card); border-radius:16px; width:min(860px,96vw); max-height:90vh; overflow:hidden; display:flex; flex-direction:column; box-shadow:0 24px 70px rgba(0,0,0,.35); }
@@ -1522,7 +1522,7 @@
     if (type === "yt") {
       title.textContent = "YouTube"; open.href = "https://www.youtube.com/watch?v=" + data.id;
       body.style.background = "#000";
-      body.innerHTML = `<iframe id="modalYtFrame" class="mv-frame" src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>` +
+      body.innerHTML = `<iframe id="modalYtFrame" class="mv-frame" src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>` +
         `<div class="modal-note">재생 오류가 나면(소유자가 임베드 차단한 영상 등) 위 <b>↗ 새 탭에서 열기</b>를 눌러주세요.</div>`;
       watchYtErrors("modalYtFrame", () => { body.innerHTML = ytFallbackHtml(data.id); });
     } else if (type === "vid") {
@@ -1547,7 +1547,7 @@
     const wrap = $("chatPlayer");
     const openHref = type === "yt" ? "https://www.youtube.com/watch?v=" + data.id : data.url;
     const frame = type === "yt"
-      ? `<iframe id="dockYtFrame" src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`
+      ? `<iframe id="dockYtFrame" src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`
       : `<video src="${esc(data.url)}" controls autoplay playsinline></video>`;
     wrap.innerHTML =
       `<div class="cp-head"><span class="cp-t">${type === "yt" ? "▶ YouTube" : "▶ " + esc(hostOf(data.url))}</span>` +

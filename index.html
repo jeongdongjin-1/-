@@ -151,14 +151,35 @@
   .chart-svg .dot-last { fill: var(--accent); }
   /* 탭 */
   .tabs {
-    max-width: 1100px; margin: 0 auto 18px; display: flex; gap: 6px;
+    position: sticky; top: 0; z-index: 50;
+    margin: 0 0 18px; padding: 0 calc(50% - 550px); display: flex; gap: 4px;
     border-bottom: 1px solid var(--border);
+    background: rgba(242,244,246,.85); backdrop-filter: saturate(180%) blur(8px);
   }
   .tabs button {
     background: transparent; color: var(--muted); border: none; border-radius: 0;
-    padding: 10px 18px; font-size: 15px; font-weight: 600; border-bottom: 2px solid transparent;
+    padding: 13px 16px; font-size: 15px; font-weight: 700; border-bottom: 2.5px solid transparent;
+    transition: color .15s; cursor: pointer;
   }
+  .tabs button .ti { margin-right: 6px; }
+  .tabs button:hover { color: var(--text); }
   .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  /* 폴리시: 카드/버튼/칩 마감 */
+  .card { border-radius: 16px; }
+  .card:hover { box-shadow: 0 8px 20px rgba(17,31,40,.10); }
+  button { transition: opacity .15s, transform .06s, box-shadow .15s, background .15s; }
+  button:active { transform: translateY(1px); }
+  .periods button { border-radius: 999px; }
+  .news-item { border-radius: 14px; }
+  ::selection { background: rgba(49,130,246,.18); }
+  /* 스켈레톤 로딩 */
+  .skel { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 18px; box-shadow: var(--shadow); }
+  .skel .ln { height: 12px; border-radius: 6px; margin: 9px 0;
+    background: linear-gradient(90deg,#eef1f4 25%,#e3e7eb 37%,#eef1f4 63%);
+    background-size: 400% 100%; animation: shimmer 1.4s ease infinite; }
+  .skel .ln.big { height: 26px; width: 58%; }
+  .skel .ln.sm { width: 42%; }
+  @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
   /* 환전 가이드 */
   .ex-calc {
     max-width: 1100px; margin: 0 auto 18px; display: flex; flex-wrap: wrap; gap: 12px;
@@ -264,13 +285,26 @@
   a { color: var(--accent); }
   /* 모바일 반응형 */
   @media (max-width: 640px) {
-    body { padding: 12px; }
+    body { padding: 12px 12px 76px; } /* 하단 탭바 공간 확보 */
     h1 { font-size: 19px; }
     header { margin-bottom: 16px; }
-    /* 탭: 줄바꿈 대신 가로 스크롤 */
-    .tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 2px; }
-    .tabs::-webkit-scrollbar { height: 0; }
-    .tabs button { padding: 9px 12px; font-size: 13px; white-space: nowrap; flex: 0 0 auto; }
+    /* 탭: 하단 고정 탭바(토스/카카오 앱 느낌) */
+    .tabs {
+      position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 100;
+      margin: 0; padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
+      gap: 0; border-top: 1px solid var(--border); border-bottom: none;
+      background: #ffffff; backdrop-filter: none;
+      box-shadow: 0 -2px 12px rgba(17,31,40,.06);
+    }
+    .tabs button {
+      flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 3px;
+      padding: 6px 2px; font-size: 11px; font-weight: 600; border-bottom: none;
+      color: var(--muted);
+    }
+    .tabs button .ti { margin-right: 0; font-size: 19px; line-height: 1; filter: grayscale(.4); opacity: .75; }
+    .tabs button .tl { font-size: 11px; }
+    .tabs button.active { color: var(--accent); border-bottom: none; }
+    .tabs button.active .ti { filter: none; opacity: 1; }
     /* 컨트롤/계산기: 세로 정렬, 입력 꽉 채움 */
     .controls, .ex-calc { padding: 12px; gap: 8px; }
     .controls input, .controls select, .ex-calc input, .ex-calc select { width: 100%; }
@@ -295,11 +329,11 @@
   </header>
 
   <div class="tabs">
-    <button id="tabBtnDash" class="active" onclick="switchTab('dash')">📊 환율 대시보드</button>
-    <button id="tabBtnEx" onclick="switchTab('ex')">💱 환전 유리한 방법</button>
-    <button id="tabBtnNews" onclick="switchTab('news')">📰 환율 뉴스</button>
-    <button id="tabBtnBan" onclick="switchTab('ban')">🛂 출국제한국가</button>
-    <button id="tabBtnWorld" onclick="switchTab('world')">🌐 세계 정세</button>
+    <button id="tabBtnDash" class="active" onclick="switchTab('dash')"><span class="ti">📊</span><span class="tl">대시보드</span></button>
+    <button id="tabBtnEx" onclick="switchTab('ex')"><span class="ti">💱</span><span class="tl">환전</span></button>
+    <button id="tabBtnNews" onclick="switchTab('news')"><span class="ti">📰</span><span class="tl">뉴스</span></button>
+    <button id="tabBtnBan" onclick="switchTab('ban')"><span class="ti">🛂</span><span class="tl">출국제한</span></button>
+    <button id="tabBtnWorld" onclick="switchTab('world')"><span class="ti">🌐</span><span class="tl">세계정세</span></button>
   </div>
 
   <div id="tab-dashboard">
@@ -1183,6 +1217,10 @@
     if (t === "world") loadWorld();
   };
   document.getElementById("worldRefresh").onclick = () => loadWorld(true);
+
+  // 첫 진입 빈 화면 대신 스켈레톤 표시 (데이터 오면 render()가 교체)
+  gridEl.innerHTML = Array.from({ length: 8 }, () =>
+    `<div class="skel"><div class="ln sm"></div><div class="ln big"></div><div class="ln sm"></div></div>`).join("");
 
   // 키 없이도 동작하므로 열자마자 자동 시작
   initExchange();

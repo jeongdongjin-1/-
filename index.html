@@ -6,6 +6,7 @@
 <title>실시간 환율 대시보드</title>
 <meta name="description" content="실시간 환율, 추이 차트, 환전 유리한 방법, 환율 뉴스, 출국제한국가(외교부 여행경보)를 한 곳에서 보는 무료 대시보드." />
 <meta name="theme-color" content="#ffffff" />
+<meta name="referrer" content="strict-origin-when-cross-origin" />
 <!-- 소셜 공유 미리보기 (Open Graph / Twitter) -->
 <meta property="og:type" content="website" />
 <meta property="og:title" content="실시간 환율 대시보드" />
@@ -307,6 +308,8 @@
   .chat-player .cp-btn:hover { border-color:var(--accent); color:var(--accent); }
   .chat-player .cp-frame { width:100%; max-width:300px; margin:0 auto; aspect-ratio:16/9; background:#000; }
   .chat-player .cp-frame iframe, .chat-player .cp-frame video { width:100%; height:100%; border:0; display:block; }
+  .chat-player .cp-foot { font-size:11px; color:var(--muted); text-align:center; padding:6px 10px; background:var(--card); border-top:1px solid var(--border); }
+  .chat-player .cp-foot a { font-weight:600; }
   #chatRoom.playing #chatMessages { height:42vh; min-height:160px; }
   /* 중앙 미디어 모달 */
   .modal-overlay { position:fixed; inset:0; z-index:1000; background:rgba(17,31,40,.62); display:flex; align-items:center; justify-content:center; padding:16px; }
@@ -1522,9 +1525,8 @@
     if (type === "yt") {
       title.textContent = "YouTube"; open.href = "https://www.youtube.com/watch?v=" + data.id;
       body.style.background = "#000";
-      body.innerHTML = `<iframe id="modalYtFrame" class="mv-frame" src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>` +
+      body.innerHTML = `<iframe class="mv-frame" src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0&playsinline=1" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>` +
         `<div class="modal-note">재생 오류가 나면(소유자가 임베드 차단한 영상 등) 위 <b>↗ 새 탭에서 열기</b>를 눌러주세요.</div>`;
-      watchYtErrors("modalYtFrame", () => { body.innerHTML = ytFallbackHtml(data.id); });
     } else if (type === "vid") {
       title.textContent = hostOf(data.url); open.href = data.url; body.style.background = "#000";
       body.innerHTML = `<video class="mv-frame" src="${esc(data.url)}" controls autoplay playsinline></video>` +
@@ -1547,7 +1549,7 @@
     const wrap = $("chatPlayer");
     const openHref = type === "yt" ? "https://www.youtube.com/watch?v=" + data.id : data.url;
     const frame = type === "yt"
-      ? `<iframe id="dockYtFrame" src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0&playsinline=1&enablejsapi=1&origin=${encodeURIComponent(location.origin)}" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`
+      ? `<iframe src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0&playsinline=1" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`
       : `<video src="${esc(data.url)}" controls autoplay playsinline></video>`;
     wrap.innerHTML =
       `<div class="cp-head"><span class="cp-t">${type === "yt" ? "▶ YouTube" : "▶ " + esc(hostOf(data.url))}</span>` +
@@ -1555,16 +1557,14 @@
       `<button class="cp-btn" id="cpExpand" title="크게 보기">⛶</button>` +
       `<a class="cp-btn" id="cpOpen" href="${esc(openHref)}" target="_blank" rel="noopener noreferrer" title="새 탭">↗</a>` +
       `<button class="cp-btn" id="cpClose" title="닫기">✕</button></span></div>` +
-      `<div class="cp-frame">${frame}</div>`;
+      `<div class="cp-frame">${frame}</div>` +
+      `<div class="cp-foot">재생 오류(임베드 차단 영상 등)면 <a href="${esc(openHref)}" target="_blank" rel="noopener noreferrer">↗ 새 탭에서 보기</a></div>`;
     wrap.style.display = "";
     $("chatRoom").classList.add("playing");
     $("cpClose").onclick = closeDock;
     $("cpExpand").onclick = () => { closeDock(); openMedia(type, data); };
     const v = wrap.querySelector("video");
     if (v) v.onerror = () => { wrap.querySelector(".cp-frame").innerHTML = `<div class="modal-note" style="padding:18px;text-align:center">재생할 수 없는 동영상입니다. ↗ 새 탭에서 열어주세요.</div>`; };
-    if (type === "yt") watchYtErrors("dockYtFrame", () => {
-      const f = wrap.querySelector(".cp-frame"); if (f) f.innerHTML = ytFallbackHtml(data.id);
-    });
     $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
   }
   function closeDock() {

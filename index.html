@@ -203,6 +203,19 @@
   .news-item a:hover { color: var(--accent); }
   .news-item .meta { font-size:12px; color: var(--muted); margin-top:6px; }
   .news-loading { max-width:1100px; margin:0 auto; color: var(--muted); font-size:14px; padding:20px 0; }
+  /* 세계 정세 브리핑 */
+  .world-head { max-width:1100px; margin:0 auto 16px; display:flex; justify-content:space-between; align-items:flex-end; gap:10px; flex-wrap:wrap; }
+  .world-title { font-size:20px; font-weight:700; }
+  .world-range { font-size:13px; color:var(--muted); margin-top:4px; }
+  .world-grid { max-width:1100px; margin:0 auto; display:grid; gap:14px; grid-template-columns: repeat(auto-fill, minmax(330px,1fr)); }
+  .wsec { background:var(--card); border:1px solid var(--border); border-radius:12px; padding:16px; }
+  .wsec h4 { font-size:15px; margin-bottom:4px; }
+  .wsec .point { font-size:12px; color:var(--muted); margin-bottom:10px; line-height:1.5; }
+  .wsec .wlist { display:flex; flex-direction:column; gap:9px; }
+  .wsec .wlist a { font-size:13.5px; color:var(--text); text-decoration:none; line-height:1.45; }
+  .wsec .wlist a:hover { color:var(--accent); }
+  .wsec .wlist .m { font-size:11px; color:var(--muted); }
+  .wsec .wmore { display:inline-block; margin-top:10px; font-size:12px; }
   /* 출국제한국가 */
   .ban-notice {
     max-width:1100px; margin:0 auto 18px; background: rgba(248,113,113,.10);
@@ -277,6 +290,7 @@
     <button id="tabBtnEx" onclick="switchTab('ex')">💱 환전 유리한 방법</button>
     <button id="tabBtnNews" onclick="switchTab('news')">📰 환율 뉴스</button>
     <button id="tabBtnBan" onclick="switchTab('ban')">🛂 출국제한국가</button>
+    <button id="tabBtnWorld" onclick="switchTab('world')">🌐 세계 정세</button>
   </div>
 
   <div id="tab-dashboard">
@@ -392,6 +406,19 @@
     <h3 class="sec">📍 여행금지 지정 <b>일부 지역</b></h3>
     <div class="ban-regions" id="banRegions"></div>
   </div><!-- /tab-ban -->
+
+  <div id="tab-world" style="display:none">
+    <div class="world-head">
+      <div>
+        <div class="world-title">🌐 세계 정세 주간 브리핑</div>
+        <div class="world-range" id="worldRange"></div>
+      </div>
+      <button id="worldRefresh">↻ 새로고침</button>
+    </div>
+    <div class="world-grid" id="worldGrid"></div>
+    <p class="news-loading" style="font-size:12px">
+      ※ 최근 7일 Google 뉴스를 주제별로 모아 보여줍니다. 제목 클릭 시 원문으로 이동합니다. (무료·키 없음)</p>
+  </div><!-- /tab-world -->
 
   <footer>
     <p>※ <b>키를 비워두면</b> 가입·인증키 없이 <code>open.er-api.com</code>(원화 기준, 하루 1회 갱신)을 사용합니다.</p>
@@ -1078,17 +1105,75 @@
     setTimeout(() => banMap.invalidateSize(), 150);
   }
 
+  /* ===== 세계 정세 주간 브리핑 ===== */
+  const WORLD_SECTIONS = [
+    { key: "intl", icon: "🌍", title: "국제 정세·외교", query: "국제정세 OR 외교 OR 정상회담",
+      point: "주요국 정상외교·국제기구 동향과 외교 갈등 흐름" },
+    { key: "war", icon: "⚔️", title: "분쟁·안보", query: "전쟁 OR 분쟁 OR 군사 OR 안보",
+      point: "무력충돌·군사 긴장과 안보 리스크 (여행·환율에도 직결)" },
+    { key: "econ", icon: "💵", title: "세계 경제·금융", query: "세계경제 OR 글로벌 금융시장 OR 연준",
+      point: "글로벌 경기·중앙은행 정책·증시/채권 흐름" },
+    { key: "energy", icon: "🛢️", title: "에너지·원자재", query: "국제유가 OR 원자재 OR OPEC OR 천연가스",
+      point: "유가·원자재 가격은 물가와 환율의 핵심 변수" },
+    { key: "uscn", icon: "🇺🇸🇨🇳", title: "미국·중국", query: "미국 OR 중국 경제 OR 미중 갈등",
+      point: "세계 양대 경제권의 정책·무역·기술 패권 동향" },
+    { key: "mideast", icon: "🕌", title: "중동 정세", query: "중동 정세 OR 이란 OR 이스라엘",
+      point: "중동 긴장은 유가·안전자산·여행경보에 즉각 반영" },
+  ];
+  let worldLoaded = false;
+
+  function weekRangeText() {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 6);
+    const f = (d) => `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
+    return `${f(start)} ~ ${f(end)} · 최근 7일 기준`;
+  }
+
+  async function loadWorld(force) {
+    $("worldRange").textContent = weekRangeText();
+    if (worldLoaded && !force) return;
+    // 섹션 골격 먼저 렌더
+    $("worldGrid").innerHTML = WORLD_SECTIONS.map(s => `
+      <div class="wsec">
+        <h4>${s.icon} ${s.title}</h4>
+        <div class="point">${s.point}</div>
+        <div class="wlist" id="w-${s.key}"><span class="m">불러오는 중…</span></div>
+        <a class="wmore" href="${gnewsWebUrl(s.query)}" target="_blank" rel="noopener noreferrer">👉 더 보기</a>
+      </div>`).join("");
+    // 프록시 과부하 방지를 위해 2개씩 순차 로드
+    for (let i = 0; i < WORLD_SECTIONS.length; i += 2) {
+      await Promise.all(WORLD_SECTIONS.slice(i, i + 2).map(fillWorldSection));
+    }
+    worldLoaded = true;
+  }
+
+  async function fillWorldSection(s) {
+    const box = $("w-" + s.key);
+    const items = await fetchNewsItems(s.query, 4);
+    if (items && items.length) {
+      box.innerHTML = items.map(n =>
+        `<a href="${n.link}" target="_blank" rel="noopener noreferrer">• ${n.title}<span class="m"> — ${n.source || ""} ${timeAgo(n.date)}</span></a>`
+      ).join("");
+    } else {
+      box.innerHTML = `<span class="m">기사를 불러오지 못했습니다. '더 보기'로 확인하세요.</span>`;
+    }
+  }
+
   window.switchTab = function (t) {
-    const map = { dash: "tab-dashboard", ex: "tab-exchange", news: "tab-news", ban: "tab-ban" };
+    const map = { dash: "tab-dashboard", ex: "tab-exchange", news: "tab-news", ban: "tab-ban", world: "tab-world" };
     Object.entries(map).forEach(([k, id]) => { $(id).style.display = (k === t) ? "" : "none"; });
     $("tabBtnDash").classList.toggle("active", t === "dash");
     $("tabBtnEx").classList.toggle("active", t === "ex");
     $("tabBtnNews").classList.toggle("active", t === "news");
     $("tabBtnBan").classList.toggle("active", t === "ban");
+    $("tabBtnWorld").classList.toggle("active", t === "world");
     if (t === "ex") renderExchange();
     if (t === "news" && !newsLoaded) loadNews();
     if (t === "ban") renderBan();
+    if (t === "world") loadWorld();
   };
+  document.getElementById("worldRefresh").onclick = () => loadWorld(true);
 
   // 키 없이도 동작하므로 열자마자 자동 시작
   initExchange();

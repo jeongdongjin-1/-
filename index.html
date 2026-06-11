@@ -246,6 +246,30 @@
   .wsec .wlist a:hover { color:var(--accent); }
   .wsec .wlist .m { font-size:11px; color:var(--muted); }
   .wsec .wmore { display:inline-block; margin-top:10px; font-size:12px; }
+  /* 토론방 */
+  .chat-bar { max-width:1100px; margin:0 auto 12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap; justify-content:space-between; }
+  .chat-channels { display:flex; gap:8px; }
+  .chat-channels .chip { background:var(--card); color:var(--muted); border:1px solid var(--border); border-radius:999px; padding:7px 16px; font-size:14px; font-weight:600; cursor:pointer; }
+  .chat-channels .chip.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  #chatNick { width:160px; }
+  .chat-messages { max-width:1100px; margin:0 auto; height:52vh; min-height:320px; overflow-y:auto;
+    background:var(--card); border:1px solid var(--border); border-radius:16px; padding:14px; box-shadow:var(--shadow);
+    display:flex; flex-direction:column; gap:10px; }
+  .cmsg { max-width:78%; }
+  .cmsg .head { font-size:12px; color:var(--muted); margin-bottom:3px; }
+  .cmsg .head b { color:var(--text); font-weight:700; }
+  .cmsg .bubble { background:#f2f4f6; border:1px solid var(--border); border-radius:4px 14px 14px 14px; padding:9px 12px; font-size:14px; line-height:1.5; word-break:break-word; white-space:pre-wrap; }
+  .cmsg.mine { align-self:flex-end; }
+  .cmsg.mine .head { text-align:right; }
+  .cmsg.mine .bubble { background:#e7f0ff; border-color:#cfe0ff; border-radius:14px 4px 14px 14px; }
+  .chat-empty { margin:auto; color:var(--muted); font-size:14px; }
+  .chat-input { max-width:1100px; margin:12px auto 0; display:flex; gap:8px; }
+  .chat-input input { flex:1; }
+  .chat-setup { max-width:760px; margin:0 auto; background:var(--card); border:1px solid var(--border); border-radius:16px; padding:20px; box-shadow:var(--shadow); }
+  .chat-setup h3 { font-size:17px; margin-bottom:10px; }
+  .chat-setup ol { margin:10px 0 10px 20px; font-size:14px; line-height:1.9; }
+  .chat-setup pre { background:#0f172a; color:#e2e8f0; border-radius:10px; padding:14px; font-size:12px; overflow-x:auto; line-height:1.5; }
+  .chat-setup code { background:#eef1f4; padding:1px 5px; border-radius:4px; font-size:13px; }
   /* 출국제한국가 */
   .ban-notice {
     max-width:1100px; margin:0 auto 18px; background: rgba(248,113,113,.10);
@@ -334,6 +358,7 @@
     <button id="tabBtnNews" onclick="switchTab('news')"><span class="ti">📰</span><span class="tl">뉴스</span></button>
     <button id="tabBtnBan" onclick="switchTab('ban')"><span class="ti">🛂</span><span class="tl">출국제한</span></button>
     <button id="tabBtnWorld" onclick="switchTab('world')"><span class="ti">🌐</span><span class="tl">세계정세</span></button>
+    <button id="tabBtnChat" onclick="switchTab('chat')"><span class="ti">💬</span><span class="tl">토론방</span></button>
   </div>
 
   <div id="tab-dashboard">
@@ -462,6 +487,26 @@
     <p class="news-loading" style="font-size:12px">
       ※ 최근 7일 Google 뉴스를 주제별로 모아 보여줍니다. 제목 클릭 시 원문으로 이동합니다. (무료·키 없음)</p>
   </div><!-- /tab-world -->
+
+  <div id="tab-chat" style="display:none">
+    <div id="chatSetup" style="display:none"></div>
+    <div id="chatRoom" style="display:none">
+      <div class="chat-bar">
+        <div class="chat-channels" id="chatChannels">
+          <button class="chip active" data-ch="fx">💱 환율 토론</button>
+          <button class="chip" data-ch="world">🌐 정세 토론</button>
+        </div>
+        <input id="chatNick" placeholder="닉네임" maxlength="20" />
+      </div>
+      <div class="chat-messages" id="chatMessages"></div>
+      <form class="chat-input" id="chatForm" autocomplete="off">
+        <input id="chatText" placeholder="메시지를 입력하세요 (최대 500자)" maxlength="500" />
+        <button type="submit" id="chatSend">전송</button>
+      </form>
+      <p class="news-loading" style="font-size:12px">
+        ※ 로그인 없는 익명 공개 토론방입니다. 누구나 볼 수 있으니 개인정보·비방·욕설은 삼가주세요. 투자 권유·허위정보 주의.</p>
+    </div>
+  </div><!-- /tab-chat -->
 
   <footer>
     <p>※ <b>키를 비워두면</b> 가입·인증키 없이 <code>open.er-api.com</code>(원화 기준, 하루 1회 갱신)을 사용합니다.</p>
@@ -1203,18 +1248,144 @@
     }
   }
 
+  /* ===== 토론방 (Supabase 익명 실시간) ===== */
+  // ↓↓↓ 본인 Supabase 프로젝트 값으로 교체 (Project Settings → API)
+  const SUPABASE_URL = "";       // 예: https://xxxxxxxx.supabase.co
+  const SUPABASE_ANON_KEY = "";  // anon public 키
+  const chatConfigured = () => /^https:\/\/.+\.supabase\.co/.test(SUPABASE_URL) && SUPABASE_ANON_KEY.length > 30;
+
+  let sb = null, chatChannel = "fx", chatInited = false, chatSub = null, chatLibLoading = null;
+  const esc = (s) => (s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+  function ensureSupabaseLib() {
+    if (window.supabase) return Promise.resolve(true);
+    if (chatLibLoading) return chatLibLoading;
+    chatLibLoading = new Promise((res) => {
+      const s = document.createElement("script");
+      s.src = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+      s.onload = () => res(true); s.onerror = () => res(false);
+      document.head.appendChild(s);
+    });
+    return chatLibLoading;
+  }
+
+  function chatSetupHtml() {
+    return `<div class="chat-setup">
+      <h3>💬 토론방 연결이 필요합니다</h3>
+      <p style="font-size:14px;color:var(--muted)">무료 Supabase 프로젝트를 연결하면 로그인 없는 <b>실시간 익명 토론방</b>이 열립니다.</p>
+      <ol>
+        <li><a href="https://supabase.com/dashboard" target="_blank" rel="noopener noreferrer">supabase.com</a> 에서 무료 프로젝트 생성</li>
+        <li>좌측 <b>SQL Editor</b>에 아래 SQL 붙여넣고 실행:</li>
+      </ol>
+      <pre>create table messages (
+  id bigint generated always as identity primary key,
+  created_at timestamptz default now(),
+  channel text not null default 'fx',
+  nickname text not null,
+  content text not null
+);
+alter table messages enable row level security;
+create policy "read all"   on messages for select using (true);
+create policy "insert all" on messages for insert with check (
+  char_length(content) between 1 and 500
+  and char_length(nickname) between 1 and 20
+  and channel in ('fx','world')
+);
+alter publication supabase_realtime add table messages;</pre>
+      <ol start="3">
+        <li><b>Project Settings → API</b>에서 <code>Project URL</code> 과 <code>anon public</code> 키 복사</li>
+        <li>두 값을 알려주시면 코드에 넣어 배포해 드립니다.</li>
+      </ol>
+    </div>`;
+  }
+
+  async function initChat() {
+    if (!chatConfigured()) {
+      $("chatSetup").style.display = ""; $("chatRoom").style.display = "none";
+      $("chatSetup").innerHTML = chatSetupHtml();
+      return;
+    }
+    $("chatSetup").style.display = "none"; $("chatRoom").style.display = "";
+    if (chatInited) return;
+    const ok = await ensureSupabaseLib();
+    if (!ok || !window.supabase) { $("chatMessages").innerHTML = `<div class="chat-empty">채팅 라이브러리를 불러오지 못했습니다.</div>`; return; }
+    sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    const nick = $("chatNick");
+    nick.value = localStorage.getItem("chatNick") || ("익명" + Math.floor(1000 + Math.random() * 9000));
+    nick.onchange = () => localStorage.setItem("chatNick", nick.value.trim().slice(0, 20));
+
+    document.querySelectorAll("#chatChannels .chip").forEach((b) => {
+      b.onclick = () => {
+        chatChannel = b.dataset.ch;
+        document.querySelectorAll("#chatChannels .chip").forEach((x) => x.classList.toggle("active", x === b));
+        loadChat(); subscribeChat();
+      };
+    });
+    $("chatForm").onsubmit = sendChat;
+    chatInited = true;
+    await loadChat();
+    subscribeChat();
+  }
+
+  function renderMsg(m) {
+    const mine = (localStorage.getItem("chatNick") || "") === m.nickname;
+    const hm = new Date(m.created_at).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    return `<div class="cmsg ${mine ? "mine" : ""}">
+      <div class="head"><b>${esc(m.nickname)}</b> · ${hm}</div>
+      <div class="bubble">${esc(m.content)}</div></div>`;
+  }
+
+  async function loadChat() {
+    const box = $("chatMessages");
+    box.innerHTML = `<div class="chat-empty">불러오는 중…</div>`;
+    const { data, error } = await sb.from("messages").select("*").eq("channel", chatChannel).order("created_at", { ascending: true }).limit(100);
+    if (error) { box.innerHTML = `<div class="chat-empty">메시지를 불러오지 못했습니다.<br>${esc(error.message)}</div>`; return; }
+    if (!data.length) { box.innerHTML = `<div class="chat-empty">첫 메시지를 남겨보세요 💬</div>`; return; }
+    box.innerHTML = data.map(renderMsg).join("");
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function subscribeChat() {
+    if (chatSub) sb.removeChannel(chatSub);
+    chatSub = sb.channel("room-" + chatChannel)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messages", filter: `channel=eq.${chatChannel}` },
+        (p) => {
+          const box = $("chatMessages");
+          const empty = box.querySelector(".chat-empty"); if (empty) box.innerHTML = "";
+          box.insertAdjacentHTML("beforeend", renderMsg(p.new));
+          box.scrollTop = box.scrollHeight;
+        })
+      .subscribe();
+  }
+
+  async function sendChat(e) {
+    e.preventDefault();
+    const text = $("chatText").value.trim();
+    if (!text) return;
+    const nick = ($("chatNick").value.trim() || "익명").slice(0, 20);
+    localStorage.setItem("chatNick", nick);
+    $("chatSend").disabled = true;
+    const { error } = await sb.from("messages").insert({ channel: chatChannel, nickname: nick, content: text.slice(0, 500) });
+    $("chatSend").disabled = false;
+    if (error) { alert("전송 실패: " + error.message); return; }
+    $("chatText").value = ""; $("chatText").focus();
+  }
+
   window.switchTab = function (t) {
-    const map = { dash: "tab-dashboard", ex: "tab-exchange", news: "tab-news", ban: "tab-ban", world: "tab-world" };
+    const map = { dash: "tab-dashboard", ex: "tab-exchange", news: "tab-news", ban: "tab-ban", world: "tab-world", chat: "tab-chat" };
     Object.entries(map).forEach(([k, id]) => { $(id).style.display = (k === t) ? "" : "none"; });
     $("tabBtnDash").classList.toggle("active", t === "dash");
     $("tabBtnEx").classList.toggle("active", t === "ex");
     $("tabBtnNews").classList.toggle("active", t === "news");
     $("tabBtnBan").classList.toggle("active", t === "ban");
     $("tabBtnWorld").classList.toggle("active", t === "world");
+    $("tabBtnChat").classList.toggle("active", t === "chat");
     if (t === "ex") renderExchange();
     if (t === "news" && !newsLoaded) loadNews();
     if (t === "ban") renderBan();
     if (t === "world") loadWorld();
+    if (t === "chat") initChat();
   };
   document.getElementById("worldRefresh").onclick = () => loadWorld(true);
 

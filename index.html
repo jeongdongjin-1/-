@@ -1864,35 +1864,59 @@
   scheduleTimer();
   switchTab("chat"); // 접속 시 토론방부터 표시
 
-  /* ===== 배경음악 (Web Audio 앰비언트 · 외부 파일 없음) ===== */
-  let bgmCtx = null, bgmMaster = null, bgmTimer = null, bgmOn = false, bgmStep = 0;
-  const BGM_CHORDS = [
-    [261.63, 329.63, 392.00], // C
-    [220.00, 277.18, 329.63], // Am-ish
-    [349.23, 440.00, 523.25], // F
-    [392.00, 493.88, 587.33], // G
+  /* ===== 배경음악 (Web Audio · 신나는 업비트, 외부 파일 없음) ===== */
+  let bgmCtx = null, bgmMaster = null, bgmTimer = null, bgmOn = false, bgmStep = 0, bgmNoise = null, bgmNext = 0;
+  const BGM_BPM = 130;
+  const BGM_STEP = 60 / BGM_BPM / 2;   // 8분음표 간격
+  const BGM_STEPS = 32;                 // 4마디 × 8스텝 루프
+  // I–V–vi–IV (C 장조) 신나는 진행 — 마디별 {근음, 코드톤}(Hz)
+  const BGM_PROG = [
+    { bass: 130.81, notes: [523.25, 659.25, 783.99] }, // C
+    { bass: 196.00, notes: [587.33, 783.99, 987.77] }, // G
+    { bass: 220.00, notes: [523.25, 659.25, 880.00] }, // Am
+    { bass: 174.61, notes: [523.25, 698.46, 880.00] }, // F
   ];
-  function bgmPlayChord() {
-    if (!bgmCtx || !bgmMaster) return;
-    const now = bgmCtx.currentTime;
-    const chord = BGM_CHORDS[bgmStep % BGM_CHORDS.length]; bgmStep++;
-    chord.forEach((f, i) => {
-      const o = bgmCtx.createOscillator();
-      o.type = i === 0 ? "sine" : "triangle";
-      o.frequency.value = f; o.detune.value = Math.sin(bgmStep + i) * 4;
-      const g = bgmCtx.createGain(); g.gain.value = 0;
-      o.connect(g); g.connect(bgmMaster);
-      g.gain.linearRampToValueAtTime(0.22, now + 1.6);
-      g.gain.linearRampToValueAtTime(0.0, now + 7.6);
-      o.start(now); o.stop(now + 8);
-    });
+  function bgmTone(freq, t, dur, type, peak) {
+    const o = bgmCtx.createOscillator(); o.type = type; o.frequency.value = freq;
+    const g = bgmCtx.createGain(); g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(peak, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    o.connect(g); g.connect(bgmMaster); o.start(t); o.stop(t + dur + 0.03);
+  }
+  function bgmKick(t) {
+    const o = bgmCtx.createOscillator(); o.type = "sine";
+    o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(50, t + 0.12);
+    const g = bgmCtx.createGain(); g.gain.setValueAtTime(0.9, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+    o.connect(g); g.connect(bgmMaster); o.start(t); o.stop(t + 0.2);
+  }
+  function bgmNoiseHit(t, dur, hp, peak) {
+    const s = bgmCtx.createBufferSource(); s.buffer = bgmNoise;
+    const f = bgmCtx.createBiquadFilter(); f.type = "highpass"; f.frequency.value = hp;
+    const g = bgmCtx.createGain(); g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    s.connect(f); f.connect(g); g.connect(bgmMaster); s.start(t); s.stop(t + dur + 0.03);
+  }
+  function bgmPlayStep(s, t) {
+    const bar = Math.floor(s / 8) % 4, b = s % 8, chord = BGM_PROG[bar];
+    if (b === 0 || b === 4 || b === 6) bgmKick(t);            // 킥
+    if (b === 2 || b === 6) bgmNoiseHit(t, 0.18, 1800, 0.32); // 스네어(2·4박)
+    bgmNoiseHit(t, 0.04, 7000, b % 2 ? 0.22 : 0.12);          // 하이햇
+    bgmTone(chord.bass, t, b % 2 ? 0.12 : 0.22, "triangle", 0.5); // 통통 베이스
+    bgmTone(chord.notes[(s + bar) % chord.notes.length], t, 0.22, "square", 0.15); // 밝은 멜로디
+  }
+  function bgmScheduler() {
+    if (!bgmCtx) return;
+    while (bgmNext < bgmCtx.currentTime + 0.12) {
+      bgmPlayStep(bgmStep % BGM_STEPS, bgmNext);
+      bgmNext += BGM_STEP; bgmStep++;
+    }
   }
   function bgmBegin() {
     if (bgmOn || !bgmCtx || bgmCtx.state !== "running") return;
     bgmMaster.gain.setValueAtTime(0, bgmCtx.currentTime);
-    bgmMaster.gain.linearRampToValueAtTime(0.06, bgmCtx.currentTime + 3);
-    bgmOn = true; bgmStep = 0; bgmPlayChord();
-    bgmTimer = setInterval(bgmPlayChord, 7000);
+    bgmMaster.gain.linearRampToValueAtTime(0.09, bgmCtx.currentTime + 1.2);
+    bgmOn = true; bgmStep = 0; bgmNext = bgmCtx.currentTime + 0.06;
+    bgmScheduler();
+    bgmTimer = setInterval(bgmScheduler, 25);
     updateBgmIcon();
   }
   function bgmStart() {
@@ -1901,8 +1925,11 @@
       bgmCtx = bgmCtx || new (window.AudioContext || window.webkitAudioContext)();
       if (!bgmMaster) {
         bgmMaster = bgmCtx.createGain(); bgmMaster.gain.value = 0;
-        const filt = bgmCtx.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 950;
+        const filt = bgmCtx.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 6500;
         bgmMaster.connect(filt); filt.connect(bgmCtx.destination);
+        const buf = bgmCtx.createBuffer(1, Math.floor(bgmCtx.sampleRate * 0.5), bgmCtx.sampleRate);
+        const d = buf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        bgmNoise = buf; // 드럼용 화이트노이즈
       }
       // 컨텍스트가 정지(suspended) 상태면 재생 시작을 미루고, 실행되는 순간 자동 시작
       bgmCtx.onstatechange = () => { if (bgmCtx.state === "running") bgmBegin(); };
@@ -1919,7 +1946,7 @@
     updateBgmIcon();
   }
   function bgmDuck(on) { // 영상 재생 시 음소거(살짝 죽임)
-    if (bgmOn && bgmMaster && bgmCtx) { bgmMaster.gain.cancelScheduledValues(bgmCtx.currentTime); bgmMaster.gain.linearRampToValueAtTime(on ? 0 : 0.06, bgmCtx.currentTime + 0.4); }
+    if (bgmOn && bgmMaster && bgmCtx) { bgmMaster.gain.cancelScheduledValues(bgmCtx.currentTime); bgmMaster.gain.linearRampToValueAtTime(on ? 0 : 0.09, bgmCtx.currentTime + 0.4); }
   }
   function bgmEnabled() { return localStorage.getItem("bgm") !== "off"; }
   function updateBgmIcon() {

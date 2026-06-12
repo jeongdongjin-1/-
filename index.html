@@ -394,6 +394,21 @@
   .skin-item .sk-name { font-size:13px; margin:6px 0; }
   .skin-item button { width:100%; border:none; border-radius:8px; padding:7px; font-size:12.5px; font-weight:700; cursor:pointer; background:var(--accent); color:var(--on-accent); }
   .skin-item button.sel { background:#16a34a; color:#fff; }
+  /* 라이브 방송(SOOP풍): 후원 풍선 · LIVE · 시청자수 */
+  #donateBtn { background:linear-gradient(90deg,#ffd84d,#ff8a3d); color:#3a1d00; border:none; border-radius:999px; padding:7px 14px; font-size:13px; font-weight:800; cursor:pointer; }
+  .cmsg.don { align-self:center; max-width:94%; }
+  .cmsg.don .head { display:none; }
+  .cmsg.don .bubble { background:linear-gradient(90deg,#ffd84d,#ff8a3d); color:#3a1d00; font-weight:800; border:none;
+    border-radius:14px; text-align:center; padding:10px 16px; box-shadow:0 3px 12px rgba(255,140,0,.4); font-size:14px; }
+  #balloonLayer { position:fixed; inset:0; pointer-events:none; z-index:400; overflow:hidden; }
+  #balloonLayer .balloon { position:absolute; bottom:-70px; font-size:38px; will-change:transform,opacity; }
+  @keyframes floatUp { 0% { transform:translateY(0) rotate(-10deg); opacity:0; } 8% { opacity:1; } 100% { transform:translateY(-112vh) rotate(10deg); opacity:0; } }
+  .cp-live { display:inline-flex; align-items:center; gap:5px; font-size:11px; font-weight:800; color:#fff; background:#e03131; border-radius:5px; padding:2px 7px; margin-left:8px; }
+  .cp-live .lv-dot { width:7px; height:7px; border-radius:50%; background:#fff; animation:pulse 1.1s infinite; }
+  .cp-viewers { font-size:12px; color:var(--muted); margin-left:8px; }
+  .donate-pick { display:flex; gap:10px; justify-content:center; padding:10px 0 4px; flex-wrap:wrap; }
+  .donate-pick button { background:linear-gradient(90deg,#ffd84d,#ff8a3d); color:#3a1d00; border:none; border-radius:12px; padding:14px 18px; font-size:15px; font-weight:800; cursor:pointer; }
+  .donate-note { text-align:center; font-size:12px; color:var(--muted); margin-top:8px; }
   /* 채팅하며 보기: 상단 도킹 플레이어 */
   .chat-player { max-width:1100px; margin:0 auto 12px; background:#000; border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:var(--shadow); }
   .chat-player .cp-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 10px; background:var(--card); border-bottom:1px solid var(--border); }
@@ -690,6 +705,7 @@
           <button class="chip" data-ch="world">🌐 정세 토론</button>
         </div>
         <input id="chatNick" placeholder="닉네임" maxlength="20" />
+        <button id="donateBtn" type="button" title="후원 풍선 보내기">🎈 후원</button>
       </div>
       <div class="chat-presence" id="chatPresence"></div>
       <div class="attend-bar" id="attendBar"></div>
@@ -706,6 +722,7 @@
     </div>
   </div><!-- /tab-chat -->
 
+  <div id="balloonLayer"></div>
   <button id="themeToggle" class="theme-toggle" title="다크/라이트 모드" aria-label="테마">🌙</button>
   <button id="bgmToggle" class="bgm-toggle" title="배경음악 켜기/끄기" aria-label="배경음악">🎵</button>
 
@@ -1772,6 +1789,61 @@
     });
   }
 
+  /* ===== 라이브 후원 풍선 (SOOP풍) ===== */
+  function spawnBalloons(n) {
+    const layer = $("balloonLayer"); if (!layer) return;
+    const count = Math.min(n * 3 + 6, 44);
+    for (let i = 0; i < count; i++) {
+      const b = document.createElement("span");
+      b.className = "balloon"; b.textContent = "🎈";
+      b.style.left = (Math.random() * 96) + "vw";
+      b.style.fontSize = (26 + Math.random() * 28) + "px";
+      b.style.filter = `hue-rotate(${Math.floor(Math.random() * 360)}deg)`;
+      const dur = 3.5 + Math.random() * 2.5;
+      b.style.animation = `floatUp ${dur}s linear forwards`;
+      b.style.animationDelay = (Math.random() * 0.8) + "s";
+      layer.appendChild(b);
+      setTimeout(() => b.remove(), (dur + 1.2) * 1000);
+    }
+  }
+  function donateChime() {
+    try {
+      if (!bgmCtx || bgmCtx.state !== "running") return; // 소리 켜진 경우에만
+      const t = bgmCtx.currentTime;
+      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => {
+        const o = bgmCtx.createOscillator(); o.type = "triangle"; o.frequency.value = f;
+        const g = bgmCtx.createGain(); g.gain.setValueAtTime(0, t + i * 0.08);
+        g.gain.linearRampToValueAtTime(0.12, t + i * 0.08 + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, t + i * 0.08 + 0.4);
+        o.connect(g); g.connect(bgmCtx.destination); o.start(t + i * 0.08); o.stop(t + i * 0.08 + 0.45);
+      });
+    } catch (e) {}
+  }
+  function donationFx(qty) { spawnBalloons(qty || 1); donateChime(); }
+  function openDonate() {
+    openInfoModal("🎈 후원 풍선 보내기", `<p class="donate-note">보유 🪙 <b>${myPoints()}</b>P · 풍선 1개 = 5P</p>
+      <div class="donate-pick">
+        <button data-q="1">🎈 ×1<br><small>5P</small></button>
+        <button data-q="5">🎈 ×5<br><small>25P</small></button>
+        <button data-q="10">🎈 ×10<br><small>50P</small></button>
+      </div>
+      <p class="donate-note">후원하면 채팅에 강조 메시지 + 화면 가득 풍선이 떠올라요!</p>`);
+    $("modalBody").querySelectorAll("button[data-q]").forEach((b) => b.onclick = () => sendDonation(parseInt(b.dataset.q, 10)));
+  }
+  function sendDonation(qty) {
+    const cost = qty * 5;
+    if (myPoints() < cost) { alert("포인트가 부족합니다. 출석으로 포인트를 모아보세요!"); return; }
+    if (!mqc || !mqc.connected) { alert("연결 중입니다. 잠시 후 다시 시도하세요."); return; }
+    localStorage.setItem("attendPoints", String(myPoints() - cost));
+    renderAttend();
+    const nick = curNick();
+    const m = { id: myId + "-don-" + Date.now(), uid: myId, nick, don: qty, t: Date.now(), text: `🎈 ${nick}님이 후원 풍선 ${qty}개를 보냈습니다! 감사합니다 🎉` };
+    mqc.publish(ctopic(chatChannel, "msg"), JSON.stringify(m), { qos: 0 });
+    addChatMsg(chatChannel, m); renderChat(); publishSnapshot(chatChannel);
+    donationFx(qty);
+    closeMedia();
+  }
+
   function doCheckIn() {
     const today = todayStr();
     if (localStorage.getItem("attendLast") === today) return;
@@ -1874,6 +1946,7 @@
       };
     });
     $("chatForm").onsubmit = sendChat;
+    $("donateBtn").onclick = openDonate;
     chatInited = true;
     applySkin(localStorage.getItem("chatSkin") || "none");
     renderChat(); renderPresence(); renderAttend();
@@ -1958,6 +2031,7 @@
       `<div class="cp-count"><span class="cp-dot"></span>현재 채널 <b>${cur.length}</b>명 접속</div>` +
       `<div class="cp-avatars">${avatars}</div>${more}` +
       `<div class="cp-breakdown"><span class="cp-pill">💱 환율 <b>${fx}</b></span><span class="cp-pill">🌐 정세 <b>${world}</b></span></div>`;
+    const dv = $("dockViewers"); if (dv) dv.textContent = "👁 " + cur.length; // 방송 시청자수
   }
 
   function subscribeChat(ch) { ["msg", "snap", "react", "typing"].forEach((k) => mqc.subscribe(ctopic(ch, k))); }
@@ -1981,6 +2055,7 @@
     } else if (kind === "msg") {
       const isNew = addChatMsg(ch, data);
       if (isNew && data.streak != null && updateRank({ uid: data.uid, nick: data.nick, streak: data.streak, total: data.total })) renderAttend();
+      if (isNew && data.don && data.uid !== myId && ch === chatChannel) donationFx(data.don); // 후원 풍선 연출
       if (isNew && data.uid === myId) publishSnapshot(ch); // 내가 보낸 글 → 히스토리 갱신
     }
     if (ch === chatChannel) renderChat();
@@ -2075,7 +2150,7 @@
       ? `<iframe src="https://www.youtube-nocookie.com/embed/${data.id}?autoplay=1&rel=0&playsinline=1" referrerpolicy="strict-origin-when-cross-origin" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>`
       : `<video src="${esc(data.url)}" controls autoplay playsinline></video>`;
     wrap.innerHTML =
-      `<div class="cp-head"><span class="cp-t">${type === "yt" ? "▶ YouTube" : "▶ " + esc(hostOf(data.url))}</span>` +
+      `<div class="cp-head"><span class="cp-t">${type === "yt" ? "▶ YouTube" : "▶ " + esc(hostOf(data.url))}<span class="cp-live"><span class="lv-dot"></span>LIVE</span><span class="cp-viewers" id="dockViewers"></span></span>` +
       `<span class="cp-act">` +
       `<button class="cp-btn" id="cpExpand" title="크게 보기">⛶</button>` +
       `<a class="cp-btn" id="cpOpen" href="${esc(openHref)}" target="_blank" rel="noopener noreferrer" title="새 탭">↗</a>` +
@@ -2089,6 +2164,7 @@
     $("cpExpand").onclick = () => { closeDock(); openMedia(type, data); };
     const v = wrap.querySelector("video");
     if (v) v.onerror = () => { wrap.querySelector(".cp-frame").innerHTML = `<div class="modal-note" style="padding:18px;text-align:center">재생할 수 없는 동영상입니다. ↗ 새 탭에서 열어주세요.</div>`; };
+    const dv = $("dockViewers"); if (dv) { const now = Date.now(); dv.textContent = "👁 " + [...presence.values()].filter((p) => p.ch === chatChannel && now - p.t < PRESENCE_TTL).length; }
     $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
   }
   function closeDock() {
@@ -2128,6 +2204,7 @@
   }
 
   function renderMsg(m) {
+    if (m.don) return `<div class="cmsg don" data-mid="${esc(m.id)}"><div class="bubble">${esc(m.text)}</div></div>`;
     if (m.sys) return `<div class="cmsg sys"><div class="bubble">${esc(m.text)}</div></div>`;
     const mine = m.uid === myId;
     const hm = new Date(m.t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });

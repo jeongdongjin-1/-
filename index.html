@@ -346,6 +346,45 @@
   .cmsg.sys { align-self:center; max-width:92%; }
   .cmsg.sys .head { display:none; }
   .cmsg.sys .bubble { background:#fff6e8; border-color:#f3d18a; color:#9a6700; text-align:center; border-radius:999px; font-size:12.5px; font-weight:600; padding:6px 14px; }
+  /* 환율 목표 알림 */
+  .alert-box { max-width:1100px; margin:0 auto 16px; background:var(--card); border:1px solid var(--border); border-radius:12px; padding:14px 16px; box-shadow:var(--shadow); }
+  .alert-box .ab-form { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .alert-box select, .alert-box input { padding:7px 9px; }
+  .alert-box input.ab-val { width:110px; }
+  .alert-box h4 { font-size:14px; margin-bottom:10px; }
+  .alert-list { list-style:none; margin:10px 0 0; padding:0; display:flex; flex-direction:column; gap:6px; }
+  .alert-list li { display:flex; align-items:center; gap:8px; font-size:13px; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:7px 10px; }
+  .alert-list .ai-del { margin-left:auto; cursor:pointer; color:var(--muted); border:none; background:none; font-size:15px; }
+  .alert-list .fired { color:var(--up); font-weight:700; }
+  /* 채팅 상호작용: 메시지 액션·반응·답글·타이핑 */
+  .cmsg { position:relative; }
+  .cmsg .msg-acts { position:absolute; top:-9px; right:6px; display:none; gap:2px; background:var(--card); border:1px solid var(--border); border-radius:999px; padding:2px 4px; box-shadow:var(--shadow); }
+  .cmsg.mine .msg-acts { right:auto; left:6px; }
+  .cmsg:hover .msg-acts { display:flex; }
+  .cmsg .msg-acts button { background:none; border:none; cursor:pointer; font-size:13px; padding:2px 4px; line-height:1; }
+  .reactions { display:flex; gap:4px; flex-wrap:wrap; margin-top:4px; }
+  .reactions .rc { font-size:11.5px; background:var(--bg); border:1px solid var(--border); border-radius:999px; padding:1px 7px; cursor:pointer; }
+  .reactions .rc.on { border-color:var(--accent); color:var(--accent); background:rgba(49,130,246,.08); }
+  .reply-quote { font-size:11.5px; color:var(--muted); border-left:2px solid var(--accent); padding:1px 7px; margin-bottom:3px; opacity:.85; }
+  .name-color { font-weight:700; }
+  .name-sbadge { font-size:12px; margin-left:2px; }
+  .chat-typing { max-width:1100px; margin:2px auto 0; height:16px; font-size:12px; color:var(--muted); font-style:italic; }
+  .reply-bar { max-width:1100px; margin:8px auto 0; display:flex; align-items:center; gap:8px; font-size:12.5px; color:var(--muted);
+    background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:6px 10px; }
+  .reply-bar b { color:var(--text); }
+  .reply-bar .rb-x { margin-left:auto; cursor:pointer; border:none; background:none; font-size:14px; color:var(--muted); }
+  /* 포인트 상점 */
+  .shop-sec { margin-bottom:18px; }
+  .shop-sec h4 { font-size:14px; margin:6px 0 10px; }
+  .shop-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:10px; }
+  .shop-item { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:12px; text-align:center; }
+  .shop-item .si-prev { font-size:22px; font-weight:800; margin-bottom:6px; }
+  .shop-item button { width:100%; margin-top:8px; border:none; border-radius:8px; padding:7px; font-size:12.5px; font-weight:700; cursor:pointer; background:var(--accent); color:#fff; }
+  .shop-item button.owned { background:#e5e8eb; color:#4e5968; }
+  .shop-item button.sel { background:#16a34a; }
+  .shop-item .si-cost { font-size:12px; color:var(--muted); margin-top:4px; }
+  .shop-bal { text-align:center; font-size:14px; margin-bottom:14px; }
+  .shop-bal b { color:var(--accent); }
   /* 채팅하며 보기: 상단 도킹 플레이어 */
   .chat-player { max-width:1100px; margin:0 auto 12px; background:#000; border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:var(--shadow); }
   .chat-player .cp-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 10px; background:var(--card); border-bottom:1px solid var(--border); }
@@ -484,6 +523,8 @@
 
   <div class="status" id="status">"지금 갱신"을 누르면 환율을 불러옵니다. (키 없이 바로 동작)</div>
 
+  <div class="alert-box" id="alertBox"></div>
+
   <div class="chart-panel" id="chartPanel" style="display:none">
     <div class="chart-head">
       <div class="chart-title" id="chartTitle"></div>
@@ -609,6 +650,8 @@
       <div class="attend-bar" id="attendBar"></div>
       <div class="chat-player" id="chatPlayer" style="display:none"></div>
       <div class="chat-messages" id="chatMessages"></div>
+      <div class="chat-typing" id="chatTyping"></div>
+      <div class="reply-bar" id="replyBar" style="display:none"></div>
       <form class="chat-input" id="chatForm" autocomplete="off">
         <input id="chatText" placeholder="메시지·뉴스 링크·유튜브 URL 공유 (최대 500자)" maxlength="500" />
         <button type="submit" id="chatSend">전송</button>
@@ -729,9 +772,58 @@
     return { rates: out, time: new Date((data.timestamp || 0) * 1000), source: "exchangerate.host" };
   }
 
+  /* ===== 환율 목표 알림 ===== */
+  function getAlerts() { try { return JSON.parse(localStorage.getItem("rateAlerts") || "[]"); } catch (e) { return []; } }
+  function saveAlerts(a) { localStorage.setItem("rateAlerts", JSON.stringify(a)); }
+  function renderAlertBox() {
+    const el = $("alertBox"); if (!el) return;
+    const opts = CURRENCIES.map(c => `<option value="${c.code}">${c.flag} ${c.name}(${c.code})</option>`).join("");
+    const alerts = getAlerts();
+    const list = alerts.length ? `<ul class="alert-list">` + alerts.map(a => {
+      const cur = CURRENCIES.find(c => c.code === a.code);
+      return `<li>${cur ? cur.flag : ""} <b>${a.code}</b> ${a.cond === "ge" ? "≥" : "≤"} <b>${a.value.toLocaleString("ko-KR")}</b>원${a.fired ? ' <span class="fired">✔ 도달</span>' : ""}<button class="ai-del" data-id="${a.id}">✕</button></li>`;
+    }).join("") + `</ul>` : "";
+    el.innerHTML = `<h4>🔔 환율 목표 알림</h4>
+      <div class="ab-form">
+        <select id="alCur">${opts}</select>
+        <select id="alCond"><option value="ge">이상(≥)</option><option value="le">이하(≤)</option></select>
+        <input id="alVal" class="ab-val" type="number" placeholder="목표 원화" />
+        <button id="alAdd">추가</button>
+      </div>${list}`;
+    $("alAdd").onclick = addAlert;
+    el.querySelectorAll(".ai-del").forEach(b => b.onclick = () => { saveAlerts(getAlerts().filter(x => x.id !== b.dataset.id)); renderAlertBox(); });
+  }
+  async function addAlert() {
+    const code = $("alCur").value, cond = $("alCond").value, value = parseFloat($("alVal").value);
+    if (!value || value <= 0) { alert("목표 원화 금액을 입력하세요."); return; }
+    if ("Notification" in window && Notification.permission === "default") { try { await Notification.requestPermission(); } catch (e) {} }
+    const a = getAlerts(); a.push({ id: "al" + Date.now(), code, cond, value, fired: false }); saveAlerts(a);
+    $("alVal").value = ""; renderAlertBox();
+  }
+  function checkAlerts(map) {
+    if (!map) return;
+    const a = getAlerts(); let changed = false;
+    a.forEach(al => {
+      if (al.fired) return;
+      const v = map[al.code]; if (v == null) return;
+      const hit = al.cond === "ge" ? v >= al.value : v <= al.value;
+      if (hit) {
+        al.fired = true; changed = true;
+        const cur = CURRENCIES.find(c => c.code === al.code);
+        notify("🔔 환율 목표 도달", `${cur ? cur.name : al.code} ${al.cond === "ge" ? "≥" : "≤"} ${al.value.toLocaleString("ko-KR")}원 도달 (현재 ${v.toLocaleString("ko-KR", { maximumFractionDigits: 2 })}원)`);
+      }
+    });
+    if (changed) { saveAlerts(a); renderAlertBox(); }
+  }
+  function notify(title, body) {
+    try { if ("Notification" in window && Notification.permission === "granted") new Notification(title, { body }); } catch (e) {}
+    setStatus("🔔 " + body);
+  }
+
   let lastRatesMap = null;
   function render(krwPerUnitMap) {
     lastRatesMap = krwPerUnitMap;
+    checkAlerts(krwPerUnitMap);
     gridEl.innerHTML = "";
     CURRENCIES.forEach(c => {
       const krwPerUnit = krwPerUnitMap[c.code];
@@ -1390,6 +1482,18 @@
   let presenceTimer = null, pruneTimer = null;
   const curNick = () => ($("chatNick").value.trim() || "익명").slice(0, 20);
 
+  // 상호작용·안전장치 상태
+  const hiddenIds = new Set(JSON.parse(localStorage.getItem("chatHidden") || "[]"));
+  const reactionMap = {};            // mid -> { emoji: Set(uid) }
+  const typingMap = new Map();       // uid -> { nick, t }
+  const announced = new Set();       // 입장 알림 표시한 uid
+  let replyTarget = null;            // { nick, text }
+  let lastSend = 0;                  // 도배 방지 쿨다운
+  let lastTypingPub = 0;
+  const SEND_COOLDOWN = 2500;
+  const BADWORDS = ["시발", "씨발", "씨1발", "개새끼", "개새", "병신", "ㅄ", "ㅂㅅ", "좆", "지랄", "ㅈㄹ", "새끼", "fuck", "shit", "asshole"];
+  function maskBad(s) { let t = s || ""; BADWORDS.forEach((w) => { if (w) t = t.split(w).join("*".repeat(w.length)); }); return t; }
+
   // 출석체크 + 랭킹 + 포인트 + 배지 + 달력
   const ATTEND_MSG = `${TOPIC_BASE}/attend/msg`;
   const ATTEND_SNAP = `${TOPIC_BASE}/attend/snap`;
@@ -1434,11 +1538,74 @@
       `<button id="attendBtn" class="${done ? "done" : ""}">${done ? "✅ 출석완료" : "📅 출석체크"}</button>` +
       (b ? `<span class="my-badge" title="${b.label} 등급">${b.icon} ${b.label}</span>` : "") +
       `<span class="attend-info">${streak > 0 ? `<span class="attend-streak">🔥 ${streak}일</span> · ` : ""}누적 <b>${total}</b>일 · 🪙 <b>${pts}</b>P</span>` +
-      `<span class="attend-acts"><button class="att-link" id="rankBtn">🏆 랭킹</button><button class="att-link" id="calBtn">📆 달력</button></span>` +
+      `<span class="attend-acts"><button class="att-link" id="rankBtn">🏆 랭킹</button><button class="att-link" id="calBtn">📆 달력</button><button class="att-link" id="shopBtn">🛒 상점</button></span>` +
       `<span class="attend-today">오늘 <b>${todayCount}</b>명 출석</span>`;
     if (!done) $("attendBtn").onclick = doCheckIn;
     $("rankBtn").onclick = () => openInfoModal("🏆 출석 랭킹 (연속일 TOP)", rankingHtml());
     $("calBtn").onclick = () => openInfoModal("📆 내 출석 달력", calendarHtml());
+    $("shopBtn").onclick = openShop;
+  }
+
+  /* ===== 포인트 상점 ===== */
+  const SHOP_COLORS = [
+    { id: "c_red", name: "레드", color: "#e03131", cost: 50 },
+    { id: "c_blue", name: "블루", color: "#1971c2", cost: 50 },
+    { id: "c_green", name: "그린", color: "#2f9e44", cost: 50 },
+    { id: "c_purple", name: "퍼플", color: "#7048e8", cost: 80 },
+    { id: "c_pink", name: "핑크", color: "#e64980", cost: 80 },
+    { id: "c_gold", name: "골드", color: "#f08c00", cost: 150 },
+  ];
+  const SHOP_BADGES = [
+    { id: "b_star", icon: "🌟", name: "스타", cost: 100 },
+    { id: "b_rocket", icon: "🚀", name: "로켓", cost: 150 },
+    { id: "b_crown", icon: "👑", name: "크라운", cost: 250 },
+    { id: "b_unicorn", icon: "🦄", name: "유니콘", cost: 300 },
+    { id: "b_fire", icon: "🔥", name: "파이어", cost: 120 },
+    { id: "b_diamond", icon: "💎", name: "다이아", cost: 400 },
+  ];
+  const shopOwned = () => new Set(JSON.parse(localStorage.getItem("shopOwned") || "[]"));
+  function shopSave(set) { localStorage.setItem("shopOwned", JSON.stringify([...set])); }
+
+  function shopHtml() {
+    const owned = shopOwned();
+    const selColor = localStorage.getItem("shopColor") || "";
+    const selBadge = localStorage.getItem("shopBadge") || "";
+    const colorItems = SHOP_COLORS.map((it) => {
+      const has = owned.has(it.id), sel = selColor === it.color;
+      const btn = sel ? `<button class="sel" data-act="selcolor" data-v="">선택중(해제)</button>`
+        : has ? `<button class="owned" data-act="selcolor" data-v="${it.color}">선택</button>`
+        : `<button data-act="buy" data-id="${it.id}" data-cost="${it.cost}" data-kind="color" data-v="${it.color}">구매</button>`;
+      return `<div class="shop-item"><div class="si-prev" style="color:${it.color}">닉</div><div>${it.name}</div>${has ? "" : `<div class="si-cost">🪙 ${it.cost}P</div>`}${btn}</div>`;
+    }).join("");
+    const badgeItems = SHOP_BADGES.map((it) => {
+      const has = owned.has(it.id), sel = selBadge === it.icon;
+      const btn = sel ? `<button class="sel" data-act="selbadge" data-v="">착용중(해제)</button>`
+        : has ? `<button class="owned" data-act="selbadge" data-v="${it.icon}">착용</button>`
+        : `<button data-act="buy" data-id="${it.id}" data-cost="${it.cost}" data-kind="badge" data-v="${it.icon}">구매</button>`;
+      return `<div class="shop-item"><div class="si-prev">${it.icon}</div><div>${it.name}</div>${has ? "" : `<div class="si-cost">🪙 ${it.cost}P</div>`}${btn}</div>`;
+    }).join("");
+    return `<div class="shop-bal">보유 포인트 🪙 <b>${myPoints()}</b>P</div>` +
+      `<div class="shop-sec"><h4>🎨 닉네임 색상</h4><div class="shop-grid">${colorItems}</div></div>` +
+      `<div class="shop-sec"><h4>✨ 특수 배지</h4><div class="shop-grid">${badgeItems}</div></div>`;
+  }
+  function openShop() {
+    openInfoModal("🛒 포인트 상점", shopHtml());
+    $("modalBody").querySelectorAll("button[data-act]").forEach((btn) => {
+      btn.onclick = () => {
+        const act = btn.dataset.act;
+        if (act === "buy") {
+          const cost = parseInt(btn.dataset.cost, 10);
+          if (myPoints() < cost) { alert("포인트가 부족합니다. 출석으로 포인트를 모아보세요!"); return; }
+          localStorage.setItem("attendPoints", String(myPoints() - cost));
+          const set = shopOwned(); set.add(btn.dataset.id); shopSave(set);
+          if (btn.dataset.kind === "color") localStorage.setItem("shopColor", btn.dataset.v);
+          else localStorage.setItem("shopBadge", btn.dataset.v);
+        } else if (act === "selcolor") localStorage.setItem("shopColor", btn.dataset.v);
+        else if (act === "selbadge") localStorage.setItem("shopBadge", btn.dataset.v);
+        renderAttend();
+        openShop(); // 갱신
+      };
+    });
   }
 
   function doCheckIn() {
@@ -1557,6 +1724,7 @@
       publishPresence();
       if (!presenceTimer) presenceTimer = setInterval(publishPresence, 12000); // 하트비트
       if (!pruneTimer) pruneTimer = setInterval(prunePresence, 5000);
+      setTimeout(() => { presenceReady = true; }, 3500); // 초기 동기화 후부터 입퇴장 알림
       renderChat();
     });
     mqc.on("reconnect", () => { chatStatus = "재연결 중…"; renderChat(); });
@@ -1576,10 +1744,24 @@
     if (mqc && mqc.connected) mqc.publish(PRESENCE_TOPIC, JSON.stringify({ uid: myId, ...rec }), { qos: 0 });
   }
 
+  let presenceReady = false; // 접속 직후 기존 접속자 입장 알림 폭주 방지
+  function localSys(text) {
+    const m = { id: "ls-" + Date.now() + "-" + Math.random().toString(36).slice(2, 5), sys: true, local: true, t: Date.now(), text };
+    chatLists[chatChannel].push(m);
+    if (chatLists[chatChannel].length > 100) chatLists[chatChannel] = chatLists[chatChannel].slice(-100);
+    renderChat();
+  }
   function handlePresence(data) {
     if (!data || !data.uid) return;
-    if (data.leave) presence.delete(data.uid);
-    else presence.set(data.uid, { nick: data.nick, ch: data.ch, t: Date.now() });
+    if (data.leave) {
+      if (presenceReady && presence.has(data.uid) && announced.has(data.uid)) localSys(`👋 ${(presence.get(data.uid) || {}).nick || "익명"}님이 나갔습니다`);
+      presence.delete(data.uid); announced.delete(data.uid);
+    } else {
+      const isNew = !presence.has(data.uid);
+      presence.set(data.uid, { nick: data.nick, ch: data.ch, t: Date.now() });
+      if (isNew && presenceReady && data.uid !== myId && !announced.has(data.uid)) { announced.add(data.uid); localSys(`👋 ${data.nick || "익명"}님이 입장했습니다`); }
+      else if (isNew) announced.add(data.uid);
+    }
     renderPresence();
   }
 
@@ -1613,9 +1795,9 @@
       `<div class="cp-breakdown"><span class="cp-pill">💱 환율 <b>${fx}</b></span><span class="cp-pill">🌐 정세 <b>${world}</b></span></div>`;
   }
 
-  function subscribeChat(ch) { mqc.subscribe(ctopic(ch, "msg")); mqc.subscribe(ctopic(ch, "snap")); }
+  function subscribeChat(ch) { ["msg", "snap", "react", "typing"].forEach((k) => mqc.subscribe(ctopic(ch, k))); }
   function resubscribeChat() {
-    ["fx", "world"].forEach((c) => { if (c !== chatChannel) { mqc.unsubscribe(ctopic(c, "msg")); mqc.unsubscribe(ctopic(c, "snap")); } });
+    ["fx", "world"].forEach((c) => { if (c !== chatChannel) ["msg", "snap", "react", "typing"].forEach((k) => mqc.unsubscribe(ctopic(c, k))); });
     subscribeChat(chatChannel);
   }
 
@@ -1625,6 +1807,8 @@
     if (t === ATTEND_SNAP) { if (Array.isArray(data)) { data.forEach(updateRank); renderAttend(); } return; }
     if (t === ATTEND_MSG) { if (updateRank(data)) renderAttend(); return; }
     const [, , ch, kind] = t.split("/");
+    if (kind === "react") { handleReaction(data); return; }
+    if (kind === "typing") { if (data && data.uid && data.uid !== myId) { typingMap.set(data.uid, { nick: data.nick, t: Date.now() }); renderTyping(); } return; }
     if (!chatLists[ch]) return;
     if (kind === "snap" && Array.isArray(data)) {
       data.forEach((m) => { addChatMsg(ch, m); if (m && m.streak != null) updateRank({ uid: m.uid, nick: m.nick, streak: m.streak, total: m.total }); });
@@ -1648,7 +1832,7 @@
 
   function publishSnapshot(ch) {
     if (!mqc || !mqc.connected) return;
-    mqc.publish(ctopic(ch, "snap"), JSON.stringify(chatLists[ch].slice(-100)), { retain: true, qos: 0 });
+    mqc.publish(ctopic(ch, "snap"), JSON.stringify(chatLists[ch].filter((x) => !x.local).slice(-100)), { retain: true, qos: 0 });
   }
 
   // 유튜브 영상 ID 추출 (watch/youtu.be/shorts/embed)
@@ -1784,14 +1968,20 @@
     const hm = new Date(m.t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
     const b = badgeFor(m.streak || 0);
     const badge = b ? ` <span class="name-badge" title="${b.label} · 🔥${m.streak || 0}일 연속">${b.icon}</span>` : "";
-    return `<div class="cmsg ${mine ? "mine" : ""}">
-      <div class="head"><b>${esc(m.nick)}</b>${badge} · ${hm}</div>
-      <div class="bubble">${renderContent(m.text)}</div></div>`;
+    const sbadge = m.sbadge ? `<span class="name-sbadge">${esc(m.sbadge)}</span>` : "";
+    const nickStyle = m.color ? ` style="color:${esc(m.color)}"` : "";
+    const reply = m.re ? `<div class="reply-quote">↩ ${esc(m.re.nick)}: ${esc(m.re.text)}</div>` : "";
+    const acts = `<span class="msg-acts"><button data-act="reply" title="답글">↩</button><button data-act="react" title="반응">👍</button><button data-act="hide" title="숨기기">🚫</button></span>`;
+    return `<div class="cmsg ${mine ? "mine" : ""}" data-mid="${esc(m.id)}">${acts}
+      <div class="head"><b class="name-color"${nickStyle}>${esc(m.nick)}</b>${sbadge}${badge} · ${hm}</div>
+      ${reply}
+      <div class="bubble">${renderContent(maskBad(m.text))}</div>
+      ${renderReactions(m.id)}</div>`;
   }
 
   function renderChat() {
     const box = $("chatMessages");
-    const list = chatLists[chatChannel] || [];
+    const list = (chatLists[chatChannel] || []).filter((m) => !hiddenIds.has(m.id));
     if (!list.length) {
       box.innerHTML = `<div class="chat-empty">${chatStatus || "첫 메시지를 남겨보세요 💬"}</div>`;
       return;
@@ -1801,17 +1991,77 @@
     if (atBottom) box.scrollTop = box.scrollHeight;
   }
 
+  // 반응(이모지) 렌더 + 처리
+  function renderReactions(mid) {
+    const r = reactionMap[mid]; if (!r) return "";
+    const chips = Object.keys(r).filter((e) => r[e].size > 0).map((e) =>
+      `<span class="rc ${r[e].has(myId) ? "on" : ""}" data-react="${e}" data-mid="${esc(mid)}">${e} ${r[e].size}</span>`);
+    return chips.length ? `<div class="reactions">${chips.join("")}</div>` : "";
+  }
+  function handleReaction(d) {
+    if (!d || !d.mid || !d.emoji || !d.uid) return;
+    const r = reactionMap[d.mid] || (reactionMap[d.mid] = {});
+    const set = r[d.emoji] || (r[d.emoji] = new Set());
+    if (set.has(d.uid)) set.delete(d.uid); else set.add(d.uid);
+    if (chatChannel) renderChat();
+  }
+  function toggleReaction(mid, emoji) {
+    handleReaction({ mid, emoji, uid: myId });          // 즉시 반영
+    if (mqc && mqc.connected) mqc.publish(ctopic(chatChannel, "react"), JSON.stringify({ mid, emoji, uid: myId }), { qos: 0 });
+  }
+
+  // 입력 중 표시
+  function renderTyping() {
+    const now = Date.now();
+    const names = [...typingMap.entries()].filter(([, v]) => now - v.t < 4000).map(([, v]) => v.nick);
+    for (const [uid, v] of typingMap) if (now - v.t >= 4000) typingMap.delete(uid);
+    const el = $("chatTyping");
+    el.textContent = names.length ? (names.slice(0, 3).join(", ") + "님이 입력 중…") : "";
+  }
+  function pubTyping() {
+    const now = Date.now();
+    if (now - lastTypingPub < 1800) return;
+    lastTypingPub = now;
+    if (mqc && mqc.connected) mqc.publish(ctopic(chatChannel, "typing"), JSON.stringify({ uid: myId, nick: curNick() }), { qos: 0 });
+  }
+
+  // 답글
+  function setReply(mid) {
+    const m = (chatLists[chatChannel] || []).find((x) => x.id === mid);
+    if (!m) return;
+    replyTarget = { nick: m.nick, text: (m.text || "").slice(0, 60) };
+    const rb = $("replyBar");
+    rb.style.display = "flex";
+    rb.innerHTML = `↩ <b>${esc(replyTarget.nick)}</b>님에게 답글: ${esc(replyTarget.text)}<button class="rb-x" id="replyX">✕</button>`;
+    $("replyX").onclick = clearReply;
+    $("chatText").focus();
+  }
+  function clearReply() { replyTarget = null; $("replyBar").style.display = "none"; $("replyBar").innerHTML = ""; }
+
+  function hideMsg(mid) {
+    hiddenIds.add(mid);
+    localStorage.setItem("chatHidden", JSON.stringify([...hiddenIds].slice(-500)));
+    renderChat();
+  }
+
   function sendChat(e) {
     e.preventDefault();
     const text = $("chatText").value.trim();
     if (!text) return;
     if (!mqc || !mqc.connected) { alert("아직 연결 중입니다. 잠시 후 다시 시도해 주세요."); return; }
+    const wait = SEND_COOLDOWN - (Date.now() - lastSend);
+    if (wait > 0) { const el = $("chatTyping"); el.textContent = `도배 방지: ${Math.ceil(wait / 1000)}초 후 다시 보낼 수 있어요`; setTimeout(renderTyping, wait); return; }
+    lastSend = Date.now();
     const nick = ($("chatNick").value.trim() || "익명").slice(0, 20);
     localStorage.setItem("chatNick", nick);
     const m = { id: myId + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 5), uid: myId, nick, text: text.slice(0, 500), t: Date.now(), streak: myStreak(), total: myTotal() };
+    const color = localStorage.getItem("shopColor"); if (color) m.color = color;
+    const sb = localStorage.getItem("shopBadge"); if (sb) m.sbadge = sb;
+    if (replyTarget) m.re = replyTarget;
     mqc.publish(ctopic(chatChannel, "msg"), JSON.stringify(m), { qos: 0 });
     if (addChatMsg(chatChannel, m)) { renderChat(); publishSnapshot(chatChannel); } // 즉시 표시 + 히스토리 갱신
     $("chatText").value = "";
+    clearReply();
     $("chatText").focus();
   }
 
@@ -1839,6 +2089,16 @@
     else openMedia(type, data);                                  // 링크 → 중앙 모달
   }
   $("chatMessages").addEventListener("click", (e) => {
+    const rc = e.target.closest("[data-react]");
+    if (rc) { toggleReaction(rc.dataset.mid, rc.dataset.react); return; }
+    const act = e.target.closest(".msg-acts button");
+    if (act) {
+      const mid = act.closest(".cmsg")?.dataset.mid; if (!mid) return;
+      if (act.dataset.act === "reply") setReply(mid);
+      else if (act.dataset.act === "react") toggleReaction(mid, "👍");
+      else if (act.dataset.act === "hide") hideMsg(mid);
+      return;
+    }
     const el = e.target.closest("[data-media]");
     if (!el) return;
     e.preventDefault();
@@ -1849,6 +2109,8 @@
     const el = e.target.closest("[data-media]");
     if (el) { e.preventDefault(); activateMedia(el); }
   });
+  $("chatText").addEventListener("input", pubTyping);
+  setInterval(renderTyping, 2000); // 입력 중 표시 정리
   $("modalClose").onclick = closeMedia;
   $("mediaModal").addEventListener("click", (e) => { if (e.target.id === "mediaModal") closeMedia(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("mediaModal").style.display !== "none") closeMedia(); });
@@ -1859,6 +2121,7 @@
 
   // 키 없이도 동작하므로 열자마자 자동 시작 (대시보드 데이터는 백그라운드로 준비)
   initExchange();
+  renderAlertBox();
   fetchRates().then(() => { if (!selectedCode) selectCurrency("USD"); });
   loadComments();
   scheduleTimer();

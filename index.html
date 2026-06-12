@@ -639,7 +639,7 @@
       🛂 <b>여행금지(여행경보 4단계)</b>는 외교부가 지정하는 최고 단계로, 해당 국가·지역은 <b>방문·체류가 금지</b>됩니다.
       위반 시 <b>여권법 제26조</b>에 따라 <b>1년 이하 징역 또는 1,000만원 이하 벌금</b>및 여권 행정제재(여권 반납·재발급 제한 등)가 부과될 수 있습니다.
       불가피한 방문은 사전에 <b>예외적 여권사용 허가</b>를 받아야 합니다.
-      <br>※ 아래는 외교부 발표 기준(지정기간 2026.7.31까지 연장)이며, 정세에 따라 수시로 바뀝니다. 출국 전 반드시 <b>해외안전여행(0404.go.kr)</b>에서 최신 정보를 확인하세요.
+      <br>※ <b>정보 기준일: 2026년 6월</b> (외교부 발표 기준, 지정기간 2026.7.31까지 연장). 정세에 따라 수시로 바뀌므로 출국 전 반드시 <b><a href="https://www.0404.go.kr/" target="_blank" rel="noopener noreferrer">해외안전여행(0404.go.kr)</a></b>에서 최신 정보를 확인하세요.
     </div>
 
     <div class="ban-refs">
@@ -1224,7 +1224,7 @@
         </tbody>
       </table>
       <p style="font-size:12px;color:var(--muted);margin-top:10px">
-        ※ 매매기준율은 현재 대시보드 환율(${cur.flag} ${code})을 사용했고, 스프레드·우대율은 은행 고시 기준 <b>대략값</b>입니다.
+        ※ 매매기준율은 현재 대시보드 환율(${cur.flag} ${code})을 사용했고, 스프레드·우대율은 은행 고시 기준 <b>대략값(기준일 2026년 6월)</b>입니다.
         실제 적용 환율·수수료는 은행/카드사마다 다르니 환전 직전 확인하세요.</p>`;
     renderBestGrid();
   }
@@ -2239,11 +2239,13 @@
     $("tabBtnBan").classList.toggle("active", t === "ban");
     $("tabBtnWorld").classList.toggle("active", t === "world");
     $("tabBtnChat").classList.toggle("active", t === "chat");
-    if (t === "ex") renderExchange();
-    if (t === "news" && !newsLoaded) loadNews();
-    if (t === "ban") renderBan();
-    if (t === "world") loadWorld();
-    if (t === "chat") initChat();
+    try {
+      if (t === "ex") renderExchange();
+      if (t === "news" && !newsLoaded) loadNews();
+      if (t === "ban") renderBan();
+      if (t === "world") loadWorld();
+      if (t === "chat") initChat();
+    } catch (err) { console.warn("탭 로드 오류:", err); }
   };
   document.getElementById("worldRefresh").onclick = () => loadWorld(true);
 
@@ -2405,6 +2407,33 @@
     const cleanup = () => events.forEach((e) => document.removeEventListener(e, kick));
     events.forEach((e) => document.addEventListener(e, kick, { passive: true }));
   }
+
+  // 성능: 탭이 안 보일 때 타이머·음악·하트비트 일시정지 → 배터리/CPU 절약
+  let hiddenPaused = false;
+  document.addEventListener("visibilitychange", () => {
+    try {
+      if (document.hidden) {
+        if (timer) { clearInterval(timer); timer = null; }
+        if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; }
+        if (pruneTimer) { clearInterval(pruneTimer); pruneTimer = null; }
+        if (bgmOn && bgmTimer) { clearInterval(bgmTimer); bgmTimer = null; }
+        if (bgmOn && bgmCtx) bgmCtx.suspend();
+        hiddenPaused = true;
+      } else if (hiddenPaused) {
+        hiddenPaused = false;
+        scheduleTimer(); fetchRates();                 // 환율 폴링 재개 + 즉시 최신화
+        if (mqc && mqc.connected) {
+          if (!presenceTimer) presenceTimer = setInterval(publishPresence, 12000);
+          if (!pruneTimer) pruneTimer = setInterval(prunePresence, 5000);
+          publishPresence();
+        }
+        if (bgmOn && bgmCtx) bgmCtx.resume().then(() => {
+          bgmNext = bgmCtx.currentTime + 0.06;
+          if (!bgmTimer) bgmTimer = setInterval(bgmScheduler, 25);
+        }).catch(() => {});
+      }
+    } catch (e) {}
+  });
 
   // PWA: 서비스워커 등록 (http/https에서만 — file://·Electron 제외)
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {

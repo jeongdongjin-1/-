@@ -419,6 +419,10 @@
   .tts-row button { background:#e5e8eb; color:#4e5968; border:none; border-radius:999px; padding:6px 16px; font-weight:700; cursor:pointer; }
   .tts-row button.on { background:var(--accent); color:var(--on-accent); }
   .tts-test { background:var(--accent); color:var(--on-accent); border:none; border-radius:10px; padding:10px; font-weight:800; cursor:pointer; }
+  .tts-presets { display:flex; flex-wrap:wrap; gap:6px; }
+  .tts-preset { background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:999px; padding:7px 12px; font-size:12.5px; font-weight:600; cursor:pointer; }
+  .tts-preset.on { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
+  .donate-voice { width:100%; padding:9px 11px; margin-top:8px; box-sizing:border-box; }
   .cmsg.don .don-msg { margin-top:6px; font-weight:600; background:rgba(255,255,255,.5); border-radius:9px; padding:6px 11px; word-break:break-word; white-space:pre-wrap; }
   /* 채팅하며 보기: 상단 도킹 플레이어 */
   .chat-player { max-width:1100px; margin:0 auto 12px; background:#000; border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:var(--shadow); }
@@ -1838,16 +1842,28 @@
   function loadVoices() { try { ttsVoices = window.speechSynthesis ? speechSynthesis.getVoices() : []; } catch (e) { ttsVoices = []; } }
   if (window.speechSynthesis) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
   const ttsEnabled = () => localStorage.getItem("ttsOn") === "1";
+  // 말투 스타일 프리셋(속도·톤 변형). 특정 실존 인물 음성 사칭이 아닌 '톤 스타일'입니다.
+  const TTS_PRESETS = [
+    { id: "normal", name: "기본 🙂", rate: 1.0, pitch: 1.0 },
+    { id: "prankster", name: "장난꾸러기 🤪", rate: 1.55, pitch: 1.75 },
+    { id: "orator", name: "근엄한 연설가 🎙️ (대통령 연설톤)", rate: 0.82, pitch: 0.6 },
+    { id: "announcer", name: "아나운서 📻", rate: 1.08, pitch: 1.05 },
+    { id: "baby", name: "아기 👶", rate: 1.1, pitch: 1.9 },
+    { id: "grandpa", name: "할아버지 👴", rate: 0.85, pitch: 0.5 },
+    { id: "robot", name: "로봇 🤖", rate: 0.92, pitch: 0.35 },
+  ];
+  const presetById = (id) => TTS_PRESETS.find((p) => p.id === id) || TTS_PRESETS[0];
   function cleanForTTS(t) { return (t || "").replace(/https?:\/\/\S+/g, "링크").replace(/[#*_~`<>]/g, "").trim().slice(0, 140); }
-  function speak(text) {
-    if (!ttsEnabled() || !window.speechSynthesis || !text) return;
+  function speak(text, opts, force) {
+    if ((!force && !ttsEnabled()) || !window.speechSynthesis || !text) return;
     try {
-      if (speechSynthesis.pending) return; // 백로그 방지(밀린 게 있으면 스킵)
+      if (!force && speechSynthesis.pending) return; // 일반 채팅은 백로그 방지
       const u = new SpeechSynthesisUtterance(text);
-      const v = ttsVoices.find((x) => x.name === localStorage.getItem("ttsVoice"));
+      const voiceName = (opts && opts.voice) || localStorage.getItem("ttsVoice");
+      const v = ttsVoices.find((x) => x.name === voiceName);
       if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = "ko-KR"; }
-      u.rate = parseFloat(localStorage.getItem("ttsRate") || "1");
-      u.pitch = parseFloat(localStorage.getItem("ttsPitch") || "1");
+      u.rate = (opts && opts.rate != null) ? opts.rate : parseFloat(localStorage.getItem("ttsRate") || "1");
+      u.pitch = (opts && opts.pitch != null) ? opts.pitch : parseFloat(localStorage.getItem("ttsPitch") || "1");
       speechSynthesis.speak(u);
     } catch (e) {}
   }
@@ -1858,9 +1874,12 @@
     const opts = vs.length ? vs.map((v) => `<option value="${esc(v.name)}" ${v.name === cur ? "selected" : ""}>${esc(v.name)} (${esc(v.lang)})</option>`).join("")
       : `<option value="">(이 브라우저에 음성이 없습니다)</option>`;
     const on = ttsEnabled();
+    const curP = localStorage.getItem("ttsPreset") || "normal";
+    const presetBtns = TTS_PRESETS.map((p) => `<button class="tts-preset ${p.id === curP ? "on" : ""}" data-preset="${p.id}">${p.name}</button>`).join("");
     return `<div class="tts-form">
       <div class="tts-row"><span>채팅 음성 읽기</span><button id="ttsToggle" class="${on ? "on" : ""}">${on ? "켜짐" : "꺼짐"}</button></div>
       <div class="tts-row"><span>성우(음성)</span><select id="ttsVoiceSel">${opts}</select></div>
+      <div><div style="font-size:13px;margin-bottom:6px">성우 스타일 프리셋</div><div class="tts-presets">${presetBtns}</div></div>
       <div class="tts-row"><span>속도 <b id="ttsRateV"></b></span><input id="ttsRate" type="range" min="0.5" max="1.6" step="0.1"></div>
       <div class="tts-row"><span>톤 <b id="ttsPitchV"></b></span><input id="ttsPitch" type="range" min="0.5" max="1.6" step="0.1"></div>
       <button id="ttsTest" class="tts-test">🔊 미리듣기</button>
@@ -1874,8 +1893,17 @@
     $("ttsRateV").textContent = rate.value; $("ttsPitchV").textContent = pitch.value;
     $("ttsToggle").onclick = () => { localStorage.setItem("ttsOn", ttsEnabled() ? "0" : "1"); if (!ttsEnabled() && window.speechSynthesis) speechSynthesis.cancel(); openTTS(); };
     $("ttsVoiceSel").onchange = (e) => localStorage.setItem("ttsVoice", e.target.value);
-    rate.oninput = () => { localStorage.setItem("ttsRate", rate.value); $("ttsRateV").textContent = rate.value; };
-    pitch.oninput = () => { localStorage.setItem("ttsPitch", pitch.value); $("ttsPitchV").textContent = pitch.value; };
+    rate.oninput = () => { localStorage.setItem("ttsRate", rate.value); $("ttsRateV").textContent = rate.value; localStorage.setItem("ttsPreset", "normal"); };
+    pitch.oninput = () => { localStorage.setItem("ttsPitch", pitch.value); $("ttsPitchV").textContent = pitch.value; localStorage.setItem("ttsPreset", "normal"); };
+    $("modalBody").querySelectorAll("button[data-preset]").forEach((b) => b.onclick = () => {
+      const p = presetById(b.dataset.preset);
+      localStorage.setItem("ttsPreset", p.id);
+      localStorage.setItem("ttsRate", String(p.rate)); localStorage.setItem("ttsPitch", String(p.pitch));
+      const was = ttsEnabled(); localStorage.setItem("ttsOn", "1");
+      speak(`${p.name} 스타일 미리듣기입니다.`, { rate: p.rate, pitch: p.pitch }, true);
+      if (!was) localStorage.setItem("ttsOn", "0");
+      openTTS();
+    });
     $("ttsTest").onclick = () => {
       const sel = $("ttsVoiceSel").value; if (sel) localStorage.setItem("ttsVoice", sel);
       const was = ttsEnabled(); localStorage.setItem("ttsOn", "1");
@@ -1885,17 +1913,20 @@
   }
   function openDonate() {
     const pre = esc(($("chatText").value || "").slice(0, 200));
+    const curP = localStorage.getItem("donPreset") || localStorage.getItem("ttsPreset") || "normal";
+    const vopts = TTS_PRESETS.map((p) => `<option value="${p.id}" ${p.id === curP ? "selected" : ""}>${p.name}</option>`).join("");
     openInfoModal("🎈 후원 풍선 보내기", `<p class="donate-note">보유 🪙 <b>${myPoints()}</b>P · 풍선 1개 = 5P</p>
       <input id="donMsg" class="donate-msg" maxlength="200" placeholder="후원과 함께 보낼 메시지 (선택)" value="${pre}" />
+      <select id="donVoice" class="donate-voice" title="이 성우 목소리로 후원 메시지가 읽힙니다">${vopts}</select>
       <div class="donate-pick">
         <button data-q="1">🎈 ×1<br><small>5P</small></button>
         <button data-q="5">🎈 ×5<br><small>25P</small></button>
         <button data-q="10">🎈 ×10<br><small>50P</small></button>
       </div>
-      <p class="donate-note">메시지를 적고 풍선 개수를 누르면 <b>후원+메시지가 함께</b> 전송돼요!</p>`);
-    $("modalBody").querySelectorAll("button[data-q]").forEach((b) => b.onclick = () => sendDonation(parseInt(b.dataset.q, 10), ($("donMsg") || {}).value || ""));
+      <p class="donate-note">메시지를 적고 풍선 개수를 누르면 <b>후원+메시지</b>가 함께 전송되고, 선택한 <b>성우 목소리로 낭독</b>돼요!</p>`);
+    $("modalBody").querySelectorAll("button[data-q]").forEach((b) => b.onclick = () => sendDonation(parseInt(b.dataset.q, 10), ($("donMsg") || {}).value || "", ($("donVoice") || {}).value || "normal"));
   }
-  function sendDonation(qty, msg) {
+  function sendDonation(qty, msg, presetId) {
     const cost = qty * 5;
     if (myPoints() < cost) { alert("포인트가 부족합니다. 출석으로 포인트를 모아보세요!"); return; }
     if (!mqc || !mqc.connected) { alert("연결 중입니다. 잠시 후 다시 시도하세요."); return; }
@@ -1903,11 +1934,15 @@
     renderAttend();
     const nick = curNick();
     const dmsg = (msg || "").trim().slice(0, 200);
+    const p = presetById(presetId || "normal");
+    localStorage.setItem("donPreset", p.id);
+    const tts = { rate: p.rate, pitch: p.pitch, voice: localStorage.getItem("ttsVoice") || "" };
     const m = { id: myId + "-don-" + Date.now(), uid: myId, nick, don: qty, t: Date.now(),
-      text: `🎈 ${nick}님이 후원 풍선 ${qty}개를 보냈습니다! 감사합니다 🎉`, dmsg: dmsg || undefined };
+      text: `🎈 ${nick}님이 후원 풍선 ${qty}개를 보냈습니다! 감사합니다 🎉`, dmsg: dmsg || undefined, tts };
     mqc.publish(ctopic(chatChannel, "msg"), JSON.stringify(m), { qos: 0 });
     addChatMsg(chatChannel, m); renderChat(); publishSnapshot(chatChannel);
     donationFx(qty);
+    speak(`${nick}님이 후원 풍선 ${qty}개! ${dmsg ? cleanForTTS(dmsg) : ""}`, tts, true); // 선택 성우로 낭독(강제)
     $("chatText").value = ""; clearReply(); // 입력창 비움(중복 전송 방지)
     closeMedia();
   }
@@ -2125,7 +2160,7 @@
       if (isNew && data.streak != null && updateRank({ uid: data.uid, nick: data.nick, streak: data.streak, total: data.total })) renderAttend();
       if (isNew && data.don && data.uid !== myId && ch === chatChannel) donationFx(data.don); // 후원 풍선 연출
       if (isNew && data.uid !== myId && ch === chatChannel && !data.sys) { // 성우 음성 읽기
-        if (data.don) speak(`${data.nick}님이 후원 풍선 ${data.don}개를 보냈습니다. ${data.dmsg ? cleanForTTS(data.dmsg) : ""}`);
+        if (data.don) speak(`${data.nick}님이 후원 풍선 ${data.don}개! ${data.dmsg ? cleanForTTS(data.dmsg) : ""}`, data.tts, true); // 후원은 선택 성우로 강제 낭독
         else speak(`${data.nick}님, ${cleanForTTS(data.text)}`);
       }
       if (isNew && data.uid === myId) publishSnapshot(ch); // 내가 보낸 글 → 히스토리 갱신

@@ -1887,22 +1887,33 @@
       o.start(now); o.stop(now + 8);
     });
   }
+  function bgmBegin() {
+    if (bgmOn || !bgmCtx || bgmCtx.state !== "running") return;
+    bgmMaster.gain.setValueAtTime(0, bgmCtx.currentTime);
+    bgmMaster.gain.linearRampToValueAtTime(0.06, bgmCtx.currentTime + 3);
+    bgmOn = true; bgmStep = 0; bgmPlayChord();
+    bgmTimer = setInterval(bgmPlayChord, 7000);
+    updateBgmIcon();
+  }
   function bgmStart() {
     if (bgmOn) return;
     try {
       bgmCtx = bgmCtx || new (window.AudioContext || window.webkitAudioContext)();
-      if (bgmCtx.state === "suspended") bgmCtx.resume();
-      bgmMaster = bgmCtx.createGain(); bgmMaster.gain.value = 0;
-      const filt = bgmCtx.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 950;
-      bgmMaster.connect(filt); filt.connect(bgmCtx.destination);
-      bgmMaster.gain.linearRampToValueAtTime(0.06, bgmCtx.currentTime + 3);
-      bgmOn = true; bgmPlayChord();
-      bgmTimer = setInterval(bgmPlayChord, 7000);
+      if (!bgmMaster) {
+        bgmMaster = bgmCtx.createGain(); bgmMaster.gain.value = 0;
+        const filt = bgmCtx.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 950;
+        bgmMaster.connect(filt); filt.connect(bgmCtx.destination);
+      }
+      // 컨텍스트가 정지(suspended) 상태면 재생 시작을 미루고, 실행되는 순간 자동 시작
+      bgmCtx.onstatechange = () => { if (bgmCtx.state === "running") bgmBegin(); };
+      if (bgmCtx.state === "running") bgmBegin();
+      else bgmCtx.resume().then(() => bgmBegin()).catch(() => {});
     } catch (e) {}
     updateBgmIcon();
   }
   function bgmStop() {
     bgmOn = false;
+    if (bgmCtx) bgmCtx.onstatechange = null;
     if (bgmTimer) { clearInterval(bgmTimer); bgmTimer = null; }
     if (bgmMaster && bgmCtx) { bgmMaster.gain.cancelScheduledValues(bgmCtx.currentTime); bgmMaster.gain.linearRampToValueAtTime(0, bgmCtx.currentTime + 1); }
     updateBgmIcon();
@@ -1923,12 +1934,19 @@
     else { localStorage.setItem("bgm", "on"); bgmStart(); }
     updateBgmIcon();
   };
-  // 접속(첫 사용자 동작)에 맞춰 자동 재생 — 자동재생 정책상 클릭/터치/키 입력 시점에 시작
+  // 접속 시 자동 재생 시도 (브라우저가 허용하면 클릭 없이 바로, 막히면 첫 상호작용에 즉시)
   updateBgmIcon();
   if (bgmEnabled()) {
-    const kick = () => { if (bgmEnabled()) bgmStart(); document.removeEventListener("pointerdown", kick); document.removeEventListener("keydown", kick); };
-    document.addEventListener("pointerdown", kick, { once: true });
-    document.addEventListener("keydown", kick, { once: true });
+    bgmStart(); // 로드 즉시 시도 (resume()이 허용되면 무클릭 재생)
+    const events = ["pointerdown", "pointerup", "touchstart", "keydown", "click", "scroll", "mousemove"];
+    const kick = () => {
+      if (!bgmEnabled()) { cleanup(); return; }
+      if (bgmCtx && bgmCtx.state !== "running") bgmCtx.resume().then(() => bgmBegin()).catch(() => {});
+      else bgmStart();
+      if (bgmOn) cleanup();
+    };
+    const cleanup = () => events.forEach((e) => document.removeEventListener(e, kick));
+    events.forEach((e) => document.addEventListener(e, kick, { passive: true }));
   }
 
   // PWA: 서비스워커 등록 (http/https에서만 — file://·Electron 제외)

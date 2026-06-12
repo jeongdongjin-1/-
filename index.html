@@ -409,6 +409,8 @@
   .donate-pick { display:flex; gap:10px; justify-content:center; padding:10px 0 4px; flex-wrap:wrap; }
   .donate-pick button { background:linear-gradient(90deg,#ffd84d,#ff8a3d); color:#3a1d00; border:none; border-radius:12px; padding:14px 18px; font-size:15px; font-weight:800; cursor:pointer; }
   .donate-note { text-align:center; font-size:12px; color:var(--muted); margin-top:8px; }
+  .donate-msg { width:100%; padding:10px 12px; margin-top:8px; box-sizing:border-box; }
+  .cmsg.don .don-msg { margin-top:6px; font-weight:600; background:rgba(255,255,255,.5); border-radius:9px; padding:6px 11px; word-break:break-word; white-space:pre-wrap; }
   /* 채팅하며 보기: 상단 도킹 플레이어 */
   .chat-player { max-width:1100px; margin:0 auto 12px; background:#000; border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:var(--shadow); }
   .chat-player .cp-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 10px; background:var(--card); border-bottom:1px solid var(--border); }
@@ -1821,26 +1823,31 @@
   }
   function donationFx(qty) { spawnBalloons(qty || 1); donateChime(); }
   function openDonate() {
+    const pre = esc(($("chatText").value || "").slice(0, 200));
     openInfoModal("🎈 후원 풍선 보내기", `<p class="donate-note">보유 🪙 <b>${myPoints()}</b>P · 풍선 1개 = 5P</p>
+      <input id="donMsg" class="donate-msg" maxlength="200" placeholder="후원과 함께 보낼 메시지 (선택)" value="${pre}" />
       <div class="donate-pick">
         <button data-q="1">🎈 ×1<br><small>5P</small></button>
         <button data-q="5">🎈 ×5<br><small>25P</small></button>
         <button data-q="10">🎈 ×10<br><small>50P</small></button>
       </div>
-      <p class="donate-note">후원하면 채팅에 강조 메시지 + 화면 가득 풍선이 떠올라요!</p>`);
-    $("modalBody").querySelectorAll("button[data-q]").forEach((b) => b.onclick = () => sendDonation(parseInt(b.dataset.q, 10)));
+      <p class="donate-note">메시지를 적고 풍선 개수를 누르면 <b>후원+메시지가 함께</b> 전송돼요!</p>`);
+    $("modalBody").querySelectorAll("button[data-q]").forEach((b) => b.onclick = () => sendDonation(parseInt(b.dataset.q, 10), ($("donMsg") || {}).value || ""));
   }
-  function sendDonation(qty) {
+  function sendDonation(qty, msg) {
     const cost = qty * 5;
     if (myPoints() < cost) { alert("포인트가 부족합니다. 출석으로 포인트를 모아보세요!"); return; }
     if (!mqc || !mqc.connected) { alert("연결 중입니다. 잠시 후 다시 시도하세요."); return; }
     localStorage.setItem("attendPoints", String(myPoints() - cost));
     renderAttend();
     const nick = curNick();
-    const m = { id: myId + "-don-" + Date.now(), uid: myId, nick, don: qty, t: Date.now(), text: `🎈 ${nick}님이 후원 풍선 ${qty}개를 보냈습니다! 감사합니다 🎉` };
+    const dmsg = (msg || "").trim().slice(0, 200);
+    const m = { id: myId + "-don-" + Date.now(), uid: myId, nick, don: qty, t: Date.now(),
+      text: `🎈 ${nick}님이 후원 풍선 ${qty}개를 보냈습니다! 감사합니다 🎉`, dmsg: dmsg || undefined };
     mqc.publish(ctopic(chatChannel, "msg"), JSON.stringify(m), { qos: 0 });
     addChatMsg(chatChannel, m); renderChat(); publishSnapshot(chatChannel);
     donationFx(qty);
+    $("chatText").value = ""; clearReply(); // 입력창 비움(중복 전송 방지)
     closeMedia();
   }
 
@@ -2204,7 +2211,10 @@
   }
 
   function renderMsg(m) {
-    if (m.don) return `<div class="cmsg don" data-mid="${esc(m.id)}"><div class="bubble">${esc(m.text)}</div></div>`;
+    if (m.don) {
+      const extra = m.dmsg ? `<div class="don-msg">${esc(maskBad(m.dmsg))}</div>` : "";
+      return `<div class="cmsg don" data-mid="${esc(m.id)}"><div class="bubble">🎈 <b>${esc(m.nick)}</b>님 후원 풍선 <b>${m.don}</b>개! 🎉${extra}</div></div>`;
+    }
     if (m.sys) return `<div class="cmsg sys"><div class="bubble">${esc(m.text)}</div></div>`;
     const mine = m.uid === myId;
     const hm = new Date(m.t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });

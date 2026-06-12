@@ -410,6 +410,15 @@
   .donate-pick button { background:linear-gradient(90deg,#ffd84d,#ff8a3d); color:#3a1d00; border:none; border-radius:12px; padding:14px 18px; font-size:15px; font-weight:800; cursor:pointer; }
   .donate-note { text-align:center; font-size:12px; color:var(--muted); margin-top:8px; }
   .donate-msg { width:100%; padding:10px 12px; margin-top:8px; box-sizing:border-box; }
+  /* 채팅 음성(성우) 설정 */
+  .tts-form { display:flex; flex-direction:column; gap:12px; }
+  .tts-row { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:14px; }
+  .tts-row span { color:var(--text); }
+  .tts-row select { flex:1; max-width:62%; padding:7px 9px; }
+  .tts-row input[type=range] { flex:1; max-width:60%; }
+  .tts-row button { background:#e5e8eb; color:#4e5968; border:none; border-radius:999px; padding:6px 16px; font-weight:700; cursor:pointer; }
+  .tts-row button.on { background:var(--accent); color:var(--on-accent); }
+  .tts-test { background:var(--accent); color:var(--on-accent); border:none; border-radius:10px; padding:10px; font-weight:800; cursor:pointer; }
   .cmsg.don .don-msg { margin-top:6px; font-weight:600; background:rgba(255,255,255,.5); border-radius:9px; padding:6px 11px; word-break:break-word; white-space:pre-wrap; }
   /* 채팅하며 보기: 상단 도킹 플레이어 */
   .chat-player { max-width:1100px; margin:0 auto 12px; background:#000; border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:var(--shadow); }
@@ -1671,13 +1680,14 @@
       `<button id="attendBtn" class="${done ? "done" : ""}">${done ? "✅ 출석완료" : "📅 출석체크"}</button>` +
       (b ? `<span class="my-badge" title="${b.label} 등급">${b.icon} ${b.label}</span>` : "") +
       `<span class="attend-info">${streak > 0 ? `<span class="attend-streak">🔥 ${streak}일</span> · ` : ""}누적 <b>${total}</b>일 · 🪙 <b>${pts}</b>P</span>` +
-      `<span class="attend-acts"><button class="att-link" id="rankBtn">🏆 랭킹</button><button class="att-link" id="calBtn">📆 달력</button><button class="att-link" id="shopBtn">🛒 상점</button><button class="att-link" id="skinBtn">🎨 스킨</button></span>` +
+      `<span class="attend-acts"><button class="att-link" id="rankBtn">🏆 랭킹</button><button class="att-link" id="calBtn">📆 달력</button><button class="att-link" id="shopBtn">🛒 상점</button><button class="att-link" id="skinBtn">🎨 스킨</button><button class="att-link" id="ttsBtn">🔊 음성</button></span>` +
       `<span class="attend-today">오늘 <b>${todayCount}</b>명 출석</span>`;
     if (!done) $("attendBtn").onclick = doCheckIn;
     $("rankBtn").onclick = () => openInfoModal("🏆 출석 랭킹 (연속일 TOP)", rankingHtml());
     $("calBtn").onclick = () => openInfoModal("📆 내 출석 달력", calendarHtml());
     $("shopBtn").onclick = openShop;
     $("skinBtn").onclick = openSkin;
+    $("ttsBtn").onclick = openTTS;
   }
 
   /* ===== 포인트 상점 ===== */
@@ -1822,6 +1832,57 @@
     } catch (e) {}
   }
   function donationFx(qty) { spawnBalloons(qty || 1); donateChime(); }
+
+  /* ===== 채팅 음성 읽기(성우별 TTS, Web Speech API) ===== */
+  let ttsVoices = [];
+  function loadVoices() { try { ttsVoices = window.speechSynthesis ? speechSynthesis.getVoices() : []; } catch (e) { ttsVoices = []; } }
+  if (window.speechSynthesis) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+  const ttsEnabled = () => localStorage.getItem("ttsOn") === "1";
+  function cleanForTTS(t) { return (t || "").replace(/https?:\/\/\S+/g, "링크").replace(/[#*_~`<>]/g, "").trim().slice(0, 140); }
+  function speak(text) {
+    if (!ttsEnabled() || !window.speechSynthesis || !text) return;
+    try {
+      if (speechSynthesis.pending) return; // 백로그 방지(밀린 게 있으면 스킵)
+      const u = new SpeechSynthesisUtterance(text);
+      const v = ttsVoices.find((x) => x.name === localStorage.getItem("ttsVoice"));
+      if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = "ko-KR"; }
+      u.rate = parseFloat(localStorage.getItem("ttsRate") || "1");
+      u.pitch = parseFloat(localStorage.getItem("ttsPitch") || "1");
+      speechSynthesis.speak(u);
+    } catch (e) {}
+  }
+  function ttsOptionsHtml() {
+    loadVoices();
+    const cur = localStorage.getItem("ttsVoice") || "";
+    const vs = ttsVoices.slice().sort((a, b) => (b.lang.startsWith("ko") ? 1 : 0) - (a.lang.startsWith("ko") ? 1 : 0));
+    const opts = vs.length ? vs.map((v) => `<option value="${esc(v.name)}" ${v.name === cur ? "selected" : ""}>${esc(v.name)} (${esc(v.lang)})</option>`).join("")
+      : `<option value="">(이 브라우저에 음성이 없습니다)</option>`;
+    const on = ttsEnabled();
+    return `<div class="tts-form">
+      <div class="tts-row"><span>채팅 음성 읽기</span><button id="ttsToggle" class="${on ? "on" : ""}">${on ? "켜짐" : "꺼짐"}</button></div>
+      <div class="tts-row"><span>성우(음성)</span><select id="ttsVoiceSel">${opts}</select></div>
+      <div class="tts-row"><span>속도 <b id="ttsRateV"></b></span><input id="ttsRate" type="range" min="0.5" max="1.6" step="0.1"></div>
+      <div class="tts-row"><span>톤 <b id="ttsPitchV"></b></span><input id="ttsPitch" type="range" min="0.5" max="1.6" step="0.1"></div>
+      <button id="ttsTest" class="tts-test">🔊 미리듣기</button>
+      <p class="donate-note">켜면 새 채팅·후원이 선택한 성우 목소리로 읽힙니다. 음성 목록은 기기/브라우저에 설치된 것입니다.</p>
+    </div>`;
+  }
+  function openTTS() {
+    openInfoModal("🔊 채팅 음성(성우) 설정", ttsOptionsHtml());
+    const rate = $("ttsRate"), pitch = $("ttsPitch");
+    rate.value = localStorage.getItem("ttsRate") || "1"; pitch.value = localStorage.getItem("ttsPitch") || "1";
+    $("ttsRateV").textContent = rate.value; $("ttsPitchV").textContent = pitch.value;
+    $("ttsToggle").onclick = () => { localStorage.setItem("ttsOn", ttsEnabled() ? "0" : "1"); if (!ttsEnabled() && window.speechSynthesis) speechSynthesis.cancel(); openTTS(); };
+    $("ttsVoiceSel").onchange = (e) => localStorage.setItem("ttsVoice", e.target.value);
+    rate.oninput = () => { localStorage.setItem("ttsRate", rate.value); $("ttsRateV").textContent = rate.value; };
+    pitch.oninput = () => { localStorage.setItem("ttsPitch", pitch.value); $("ttsPitchV").textContent = pitch.value; };
+    $("ttsTest").onclick = () => {
+      const sel = $("ttsVoiceSel").value; if (sel) localStorage.setItem("ttsVoice", sel);
+      const was = ttsEnabled(); localStorage.setItem("ttsOn", "1");
+      speak("안녕하세요, 환율 토론방 음성 미리듣기입니다.");
+      if (!was) localStorage.setItem("ttsOn", "0");
+    };
+  }
   function openDonate() {
     const pre = esc(($("chatText").value || "").slice(0, 200));
     openInfoModal("🎈 후원 풍선 보내기", `<p class="donate-note">보유 🪙 <b>${myPoints()}</b>P · 풍선 1개 = 5P</p>
@@ -2063,6 +2124,10 @@
       const isNew = addChatMsg(ch, data);
       if (isNew && data.streak != null && updateRank({ uid: data.uid, nick: data.nick, streak: data.streak, total: data.total })) renderAttend();
       if (isNew && data.don && data.uid !== myId && ch === chatChannel) donationFx(data.don); // 후원 풍선 연출
+      if (isNew && data.uid !== myId && ch === chatChannel && !data.sys) { // 성우 음성 읽기
+        if (data.don) speak(`${data.nick}님이 후원 풍선 ${data.don}개를 보냈습니다. ${data.dmsg ? cleanForTTS(data.dmsg) : ""}`);
+        else speak(`${data.nick}님, ${cleanForTTS(data.text)}`);
+      }
       if (isNew && data.uid === myId) publishSnapshot(ch); // 내가 보낸 글 → 히스토리 갱신
     }
     if (ch === chatChannel) renderChat();

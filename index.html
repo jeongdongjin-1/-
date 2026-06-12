@@ -309,6 +309,34 @@
   .attend-streak { color:#f04452; font-weight:700; }
   .attend-today { margin-left:auto; font-size:13px; color:var(--muted); }
   .attend-today b { color:var(--accent); }
+  .my-badge { font-size:12px; font-weight:700; background:#fff6e8; color:#9a6700; border:1px solid #f3d18a; border-radius:999px; padding:3px 9px; }
+  .attend-acts { display:flex; gap:6px; }
+  .att-link { background:var(--bg)!important; color:var(--text)!important; border:1px solid var(--border)!important; border-radius:999px!important; padding:6px 12px!important; font-size:12.5px!important; font-weight:600!important; }
+  .name-badge { font-size:12px; }
+  /* 랭킹 모달 */
+  .info-modal { padding:16px 18px; max-height:78vh; overflow-y:auto; }
+  .im-empty { color:var(--muted); text-align:center; padding:24px; line-height:1.7; }
+  .rank-list { list-style:none; margin:0; padding:0; }
+  .rank-list li { display:flex; align-items:center; gap:10px; padding:10px 6px; border-bottom:1px solid var(--border); font-size:14px; }
+  .rank-list li:last-child { border-bottom:none; }
+  .rk-pos { width:28px; text-align:center; font-size:16px; font-weight:700; color:var(--muted); }
+  .rk-pos .rk-num { font-size:14px; }
+  .rk-badge { width:22px; text-align:center; }
+  .rk-nick { flex:1; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rk-streak { color:#f04452; font-weight:700; font-size:13px; }
+  .rk-total { color:var(--muted); font-size:12px; }
+  /* 출석 달력 */
+  .cal-top { font-size:14px; font-weight:700; margin-bottom:12px; text-align:center; }
+  .cal-top b { color:var(--accent); }
+  .cal-dow { display:grid; grid-template-columns:repeat(7,1fr); margin-bottom:6px; }
+  .cal-dow span { text-align:center; font-size:12px; color:var(--muted); }
+  .cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:4px; }
+  .cal-cell { aspect-ratio:1; display:flex; align-items:center; justify-content:center; font-size:13px; color:var(--text); border-radius:50%; }
+  .cal-cell.empty { visibility:hidden; }
+  .cal-cell.on { background:var(--accent); color:#fff; font-weight:700; }
+  .cal-cell.today { outline:2px solid #f04452; }
+  .cal-legend { margin-top:12px; font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; justify-content:center; }
+  .cal-cell.mini { width:14px; height:14px; aspect-ratio:auto; display:inline-flex; }
   /* 시스템(출석) 메시지 */
   .cmsg.sys { align-self:center; max-width:92%; }
   .cmsg.sys .head { display:none; }
@@ -1355,64 +1383,120 @@
   let presenceTimer = null, pruneTimer = null;
   const curNick = () => ($("chatNick").value.trim() || "익명").slice(0, 20);
 
-  // 출석체크: 개인 기록(localStorage) + 오늘 출석 인원 공유(MQTT 스냅샷)
+  // 출석체크 + 랭킹 + 포인트 + 배지 + 달력
   const ATTEND_MSG = `${TOPIC_BASE}/attend/msg`;
   const ATTEND_SNAP = `${TOPIC_BASE}/attend/snap`;
-  const attendList = [];               // [{uid, nick, date}]
-  const attendSeen = new Set();
+  const rankMap = {};                  // uid -> { nick, streak, total, date }
   const ymdLocal = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   const todayStr = () => ymdLocal(new Date());
+  const myStreak = () => parseInt(localStorage.getItem("attendStreak") || "0", 10);
+  const myTotal = () => parseInt(localStorage.getItem("attendTotal") || "0", 10);
+  const myPoints = () => parseInt(localStorage.getItem("attendPoints") || "0", 10);
 
-  function addAttend(rec) {
-    if (!rec || !rec.uid || !rec.date) return false;
-    const k = rec.uid + "|" + rec.date;
-    if (attendSeen.has(k)) return false;
-    attendSeen.add(k); attendList.push(rec);
-    return true;
+  function badgeFor(streak) {
+    if (streak >= 30) return { icon: "👑", label: "마스터" };
+    if (streak >= 14) return { icon: "💎", label: "다이아" };
+    if (streak >= 7)  return { icon: "⭐", label: "골드" };
+    if (streak >= 3)  return { icon: "🔥", label: "실버" };
+    if (streak >= 1)  return { icon: "🌱", label: "새싹" };
+    return null;
+  }
+  function updateRank(r) {
+    if (!r || !r.uid) return false;
+    const cur = rankMap[r.uid];
+    if (!cur || (r.total || 0) >= (cur.total || 0)) {
+      rankMap[r.uid] = { nick: r.nick || (cur && cur.nick) || "익명", streak: r.streak || 0, total: r.total || 0, date: r.date || (cur && cur.date) || "" };
+      return true;
+    }
+    return false;
   }
   function publishAttendSnap() {
     if (!mqc || !mqc.connected) return;
-    const today = todayStr();
-    mqc.publish(ATTEND_SNAP, JSON.stringify(attendList.filter((a) => a.date === today).slice(-200)), { retain: true, qos: 0 });
+    const arr = Object.entries(rankMap).map(([uid, v]) => ({ uid, ...v })).slice(-500);
+    mqc.publish(ATTEND_SNAP, JSON.stringify(arr), { retain: true, qos: 0 });
   }
+
   function renderAttend() {
     const el = $("attendBar"); if (!el) return;
     const today = todayStr();
     const done = localStorage.getItem("attendLast") === today;
-    const streak = parseInt(localStorage.getItem("attendStreak") || "0", 10);
-    const total = parseInt(localStorage.getItem("attendTotal") || "0", 10);
-    const todayCount = new Set(attendList.filter((a) => a.date === today).map((a) => a.uid)).size;
+    const streak = myStreak(), total = myTotal(), pts = myPoints();
+    const b = badgeFor(streak);
+    const todayCount = Object.values(rankMap).filter((v) => v.date === today).length;
     el.innerHTML =
-      `<button id="attendBtn" class="${done ? "done" : ""}">${done ? "✅ 오늘 출석완료" : "📅 오늘 출석체크"}</button>` +
-      `<span class="attend-info">${streak > 0 ? `<span class="attend-streak">🔥 ${streak}일 연속</span> · ` : ""}누적 <b>${total}</b>일</span>` +
-      `<span class="attend-today">오늘 출석 <b>${todayCount}</b>명</span>`;
-    const btn = $("attendBtn");
-    if (btn && !done) btn.onclick = doCheckIn;
+      `<button id="attendBtn" class="${done ? "done" : ""}">${done ? "✅ 출석완료" : "📅 출석체크"}</button>` +
+      (b ? `<span class="my-badge" title="${b.label} 등급">${b.icon} ${b.label}</span>` : "") +
+      `<span class="attend-info">${streak > 0 ? `<span class="attend-streak">🔥 ${streak}일</span> · ` : ""}누적 <b>${total}</b>일 · 🪙 <b>${pts}</b>P</span>` +
+      `<span class="attend-acts"><button class="att-link" id="rankBtn">🏆 랭킹</button><button class="att-link" id="calBtn">📆 달력</button></span>` +
+      `<span class="attend-today">오늘 <b>${todayCount}</b>명 출석</span>`;
+    if (!done) $("attendBtn").onclick = doCheckIn;
+    $("rankBtn").onclick = () => openInfoModal("🏆 출석 랭킹 (연속일 TOP)", rankingHtml());
+    $("calBtn").onclick = () => openInfoModal("📆 내 출석 달력", calendarHtml());
   }
+
   function doCheckIn() {
     const today = todayStr();
     if (localStorage.getItem("attendLast") === today) return;
     const last = localStorage.getItem("attendLast");
     const yest = ymdLocal(new Date(Date.now() - 86400000));
-    let streak = parseInt(localStorage.getItem("attendStreak") || "0", 10);
-    let total = parseInt(localStorage.getItem("attendTotal") || "0", 10);
+    let streak = myStreak(), total = myTotal(), pts = myPoints();
     streak = last === yest ? streak + 1 : 1;
     total += 1;
+    const gained = 10 + Math.min(streak, 10) * 2;       // 기본 10P + 연속 보너스
+    pts += gained;
     localStorage.setItem("attendLast", today);
     localStorage.setItem("attendStreak", String(streak));
     localStorage.setItem("attendTotal", String(total));
+    localStorage.setItem("attendPoints", String(pts));
+    const dates = JSON.parse(localStorage.getItem("attendDates") || "[]");
+    if (!dates.includes(today)) { dates.push(today); localStorage.setItem("attendDates", JSON.stringify(dates.slice(-400))); }
 
     const nick = curNick();
-    const rec = { uid: myId, nick, date: today };
+    const rec = { uid: myId, nick, streak, total, date: today };
+    updateRank(rec);
     if (mqc && mqc.connected) mqc.publish(ATTEND_MSG, JSON.stringify(rec), { qos: 0 });
-    addAttend(rec); publishAttendSnap();
+    publishAttendSnap();
 
-    // 채팅에 출석 시스템 메시지
+    const b = badgeFor(streak);
     const sys = { id: myId + "-att-" + Date.now(), uid: myId, nick, sys: true, t: Date.now(),
-      text: `📅 ${nick}님 출석! 🔥${streak}일 연속 · 누적 ${total}일` };
+      text: `📅 ${nick}님 출석! ${b ? b.icon + " " : ""}🔥${streak}일 연속 · 누적 ${total}일 · +${gained}P` };
     if (mqc && mqc.connected) mqc.publish(ctopic(chatChannel, "msg"), JSON.stringify(sys), { qos: 0 });
     addChatMsg(chatChannel, sys); renderChat(); publishSnapshot(chatChannel);
     renderAttend();
+  }
+
+  function rankingHtml() {
+    const arr = Object.values(rankMap).sort((a, b) => (b.streak - a.streak) || (b.total - a.total)).slice(0, 10);
+    if (!arr.length) return `<p class="im-empty">아직 출석 기록이 없습니다.<br>첫 출석의 주인공이 되어보세요! 🌱</p>`;
+    return `<ol class="rank-list">` + arr.map((u, i) => {
+      const b = badgeFor(u.streak);
+      const medal = ["🥇", "🥈", "🥉"][i] || `<span class="rk-num">${i + 1}</span>`;
+      return `<li><span class="rk-pos">${medal}</span><span class="rk-badge">${b ? b.icon : ""}</span>` +
+        `<span class="rk-nick">${esc(u.nick)}</span><span class="rk-streak">🔥${u.streak}일</span><span class="rk-total">누적 ${u.total}</span></li>`;
+    }).join("") + `</ol>`;
+  }
+  function calendarHtml() {
+    const set = new Set(JSON.parse(localStorage.getItem("attendDates") || "[]"));
+    const now = new Date(), y = now.getFullYear(), mo = now.getMonth(), todayD = now.getDate();
+    const startDow = new Date(y, mo, 1).getDay(), days = new Date(y, mo + 1, 0).getDate();
+    const mk = (d) => `${y}-${String(mo + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    let cells = "";
+    for (let i = 0; i < startDow; i++) cells += `<span class="cal-cell empty"></span>`;
+    for (let d = 1; d <= days; d++) cells += `<span class="cal-cell ${set.has(mk(d)) ? "on" : ""} ${d === todayD ? "today" : ""}">${d}</span>`;
+    const monthCount = [...set].filter((s) => s.startsWith(`${y}-${String(mo + 1).padStart(2, "0")}`)).length;
+    return `<div class="cal-top">${y}년 ${mo + 1}월 · 이번 달 <b>${monthCount}</b>일 출석</div>` +
+      `<div class="cal-dow"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div>` +
+      `<div class="cal-grid">${cells}</div>` +
+      `<div class="cal-legend"><span class="cal-cell on mini"></span> 출석한 날</div>`;
+  }
+
+  // 정보 모달(랭킹/달력) — 미디어 모달 재사용
+  function openInfoModal(title, html) {
+    $("modalTitle").textContent = title;
+    $("modalOpen").style.display = "none";
+    const body = $("modalBody"); body.style.background = "var(--card)";
+    body.innerHTML = `<div class="info-modal">${html}</div>`;
+    $("mediaModal").style.display = "flex";
   }
 
   function ensureMqttLib() {
@@ -1531,14 +1615,16 @@
   function onChatMessage(t, payload) {
     let data; try { data = JSON.parse(payload.toString()); } catch (e) { return; }
     if (t === PRESENCE_TOPIC) { handlePresence(data); return; }
-    if (t === ATTEND_SNAP) { if (Array.isArray(data)) { data.forEach(addAttend); renderAttend(); } return; }
-    if (t === ATTEND_MSG) { if (addAttend(data)) renderAttend(); return; }
+    if (t === ATTEND_SNAP) { if (Array.isArray(data)) { data.forEach(updateRank); renderAttend(); } return; }
+    if (t === ATTEND_MSG) { if (updateRank(data)) renderAttend(); return; }
     const [, , ch, kind] = t.split("/");
     if (!chatLists[ch]) return;
     if (kind === "snap" && Array.isArray(data)) {
-      data.forEach((m) => addChatMsg(ch, m));
+      data.forEach((m) => { addChatMsg(ch, m); if (m && m.streak != null) updateRank({ uid: m.uid, nick: m.nick, streak: m.streak, total: m.total }); });
+      renderAttend();
     } else if (kind === "msg") {
       const isNew = addChatMsg(ch, data);
+      if (isNew && data.streak != null && updateRank({ uid: data.uid, nick: data.nick, streak: data.streak, total: data.total })) renderAttend();
       if (isNew && data.uid === myId) publishSnapshot(ch); // 내가 보낸 글 → 히스토리 갱신
     }
     if (ch === chatChannel) renderChat();
@@ -1600,6 +1686,7 @@
   // 중앙 미디어 모달
   function openMedia(type, data) {
     const ov = $("mediaModal"), body = $("modalBody"), title = $("modalTitle"), open = $("modalOpen");
+    open.style.display = ""; // 정보 모달에서 숨겼을 수 있으니 복구
     body.innerHTML = "";
     if (type === "yt") {
       title.textContent = "YouTube"; open.href = "https://www.youtube.com/watch?v=" + data.id;
@@ -1685,8 +1772,10 @@
     if (m.sys) return `<div class="cmsg sys"><div class="bubble">${esc(m.text)}</div></div>`;
     const mine = m.uid === myId;
     const hm = new Date(m.t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
+    const b = badgeFor(m.streak || 0);
+    const badge = b ? ` <span class="name-badge" title="${b.label} · 🔥${m.streak || 0}일 연속">${b.icon}</span>` : "";
     return `<div class="cmsg ${mine ? "mine" : ""}">
-      <div class="head"><b>${esc(m.nick)}</b> · ${hm}</div>
+      <div class="head"><b>${esc(m.nick)}</b>${badge} · ${hm}</div>
       <div class="bubble">${renderContent(m.text)}</div></div>`;
   }
 
@@ -1709,7 +1798,7 @@
     if (!mqc || !mqc.connected) { alert("아직 연결 중입니다. 잠시 후 다시 시도해 주세요."); return; }
     const nick = ($("chatNick").value.trim() || "익명").slice(0, 20);
     localStorage.setItem("chatNick", nick);
-    const m = { id: myId + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 5), uid: myId, nick, text: text.slice(0, 500), t: Date.now() };
+    const m = { id: myId + "-" + Date.now() + "-" + Math.random().toString(36).slice(2, 5), uid: myId, nick, text: text.slice(0, 500), t: Date.now(), streak: myStreak(), total: myTotal() };
     mqc.publish(ctopic(chatChannel, "msg"), JSON.stringify(m), { qos: 0 });
     if (addChatMsg(chatChannel, m)) { renderChat(); publishSnapshot(chatChannel); } // 즉시 표시 + 히스토리 갱신
     $("chatText").value = "";

@@ -1548,20 +1548,20 @@
 
   /* ===== 포인트 상점 ===== */
   const SHOP_COLORS = [
-    { id: "c_red", name: "레드", color: "#e03131", cost: 50 },
-    { id: "c_blue", name: "블루", color: "#1971c2", cost: 50 },
-    { id: "c_green", name: "그린", color: "#2f9e44", cost: 50 },
-    { id: "c_purple", name: "퍼플", color: "#7048e8", cost: 80 },
-    { id: "c_pink", name: "핑크", color: "#e64980", cost: 80 },
-    { id: "c_gold", name: "골드", color: "#f08c00", cost: 150 },
+    { id: "c_red", name: "레드", color: "#e03131", cost: 20 },
+    { id: "c_blue", name: "블루", color: "#1971c2", cost: 20 },
+    { id: "c_green", name: "그린", color: "#2f9e44", cost: 20 },
+    { id: "c_purple", name: "퍼플", color: "#7048e8", cost: 30 },
+    { id: "c_pink", name: "핑크", color: "#e64980", cost: 30 },
+    { id: "c_gold", name: "골드", color: "#f08c00", cost: 50 },
   ];
   const SHOP_BADGES = [
-    { id: "b_star", icon: "🌟", name: "스타", cost: 100 },
-    { id: "b_rocket", icon: "🚀", name: "로켓", cost: 150 },
-    { id: "b_crown", icon: "👑", name: "크라운", cost: 250 },
-    { id: "b_unicorn", icon: "🦄", name: "유니콘", cost: 300 },
-    { id: "b_fire", icon: "🔥", name: "파이어", cost: 120 },
-    { id: "b_diamond", icon: "💎", name: "다이아", cost: 400 },
+    { id: "b_star", icon: "🌟", name: "스타", cost: 30 },
+    { id: "b_rocket", icon: "🚀", name: "로켓", cost: 40 },
+    { id: "b_crown", icon: "👑", name: "크라운", cost: 50 },
+    { id: "b_unicorn", icon: "🦄", name: "유니콘", cost: 50 },
+    { id: "b_fire", icon: "🔥", name: "파이어", cost: 40 },
+    { id: "b_diamond", icon: "💎", name: "다이아", cost: 50 },
   ];
   const shopOwned = () => new Set(JSON.parse(localStorage.getItem("shopOwned") || "[]"));
   function shopSave(set) { localStorage.setItem("shopOwned", JSON.stringify([...set])); }

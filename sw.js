@@ -1,5 +1,5 @@
 // 실시간 환율 대시보드 — 서비스워커 (앱 셸 오프라인 캐시)
-const CACHE = "krw-dash-v21";
+const CACHE = "krw-dash-v22";
 const SHELL = ["./", "./index.html", "./manifest.json", "./icon.svg"];
 
 self.addEventListener("install", (e) => {

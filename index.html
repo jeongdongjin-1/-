@@ -300,10 +300,10 @@
   .media-card.filevid { aspect-ratio:auto; background:#0f172a; color:#cfe0ff; padding:13px 14px; gap:9px; justify-content:flex-start; font-size:13px; }
   .media-card.filevid .mc-play { position:static; width:32px; height:32px; font-size:14px; flex:0 0 auto; }
   /* 배경음악 토글 */
-  .bgm-toggle { position:fixed; left:16px; bottom:16px; z-index:200; width:44px; height:44px; border-radius:50%;
+  .bgm-toggle { position:fixed; right:16px; top:16px; z-index:300; width:44px; height:44px; border-radius:50%;
     background:var(--card); border:1px solid var(--border); box-shadow:var(--shadow); font-size:18px; cursor:pointer; color:var(--text); }
   .bgm-toggle.off { opacity:.6; }
-  @media (max-width:640px) { .bgm-toggle { bottom:72px; left:12px; width:40px; height:40px; font-size:16px; } }
+  @media (max-width:640px) { .bgm-toggle { top:12px; right:12px; width:40px; height:40px; font-size:16px; } }
   /* 출석체크 */
   .attend-bar { max-width:1100px; margin:0 auto 12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
     background:var(--card); border:1px solid var(--border); border-radius:14px; padding:10px 16px; box-shadow:var(--shadow); }

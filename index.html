@@ -386,7 +386,14 @@
   .shop-item button.sel { background:#16a34a; }
   .shop-item .si-cost { font-size:12px; color:var(--muted); margin-top:4px; }
   .shop-bal { text-align:center; font-size:14px; margin-bottom:14px; }
-  .shop-bal b { color:var(--accent); }
+  .shop-bal b { color:var(--accent-text); }
+  /* 채팅 배경 스킨 */
+  .skin-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:12px; }
+  .skin-item { text-align:center; }
+  .skin-item .sk-prev { height:72px; border:1px solid var(--border); border-radius:10px; }
+  .skin-item .sk-name { font-size:13px; margin:6px 0; }
+  .skin-item button { width:100%; border:none; border-radius:8px; padding:7px; font-size:12.5px; font-weight:700; cursor:pointer; background:var(--accent); color:var(--on-accent); }
+  .skin-item button.sel { background:#16a34a; color:#fff; }
   /* 채팅하며 보기: 상단 도킹 플레이어 */
   .chat-player { max-width:1100px; margin:0 auto 12px; background:#000; border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:var(--shadow); }
   .chat-player .cp-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 10px; background:var(--card); border-bottom:1px solid var(--border); }
@@ -1645,12 +1652,13 @@
       `<button id="attendBtn" class="${done ? "done" : ""}">${done ? "✅ 출석완료" : "📅 출석체크"}</button>` +
       (b ? `<span class="my-badge" title="${b.label} 등급">${b.icon} ${b.label}</span>` : "") +
       `<span class="attend-info">${streak > 0 ? `<span class="attend-streak">🔥 ${streak}일</span> · ` : ""}누적 <b>${total}</b>일 · 🪙 <b>${pts}</b>P</span>` +
-      `<span class="attend-acts"><button class="att-link" id="rankBtn">🏆 랭킹</button><button class="att-link" id="calBtn">📆 달력</button><button class="att-link" id="shopBtn">🛒 상점</button></span>` +
+      `<span class="attend-acts"><button class="att-link" id="rankBtn">🏆 랭킹</button><button class="att-link" id="calBtn">📆 달력</button><button class="att-link" id="shopBtn">🛒 상점</button><button class="att-link" id="skinBtn">🎨 스킨</button></span>` +
       `<span class="attend-today">오늘 <b>${todayCount}</b>명 출석</span>`;
     if (!done) $("attendBtn").onclick = doCheckIn;
     $("rankBtn").onclick = () => openInfoModal("🏆 출석 랭킹 (연속일 TOP)", rankingHtml());
     $("calBtn").onclick = () => openInfoModal("📆 내 출석 달력", calendarHtml());
     $("shopBtn").onclick = openShop;
+    $("skinBtn").onclick = openSkin;
   }
 
   /* ===== 포인트 상점 ===== */
@@ -1712,6 +1720,55 @@
         renderAttend();
         openShop(); // 갱신
       };
+    });
+  }
+
+  /* ===== 토론방 배경 스킨 (직접 그린 SVG 패턴) ===== */
+  function svgFlower(x, y, sc, petal, center) {
+    const p = [0, 72, 144, 216, 288].map(a => `<ellipse cx='0' cy='-10' rx='5.5' ry='10' transform='rotate(${a})'/>`).join("");
+    return `<g transform='translate(${x},${y}) scale(${sc})'><g fill='${petal}'>${p}</g><circle r='4.5' fill='${center}'/></g>`;
+  }
+  function svgFlowerTile(petal, center) {
+    return `<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96' viewBox='0 0 96 96'><g opacity='0.5'>${svgFlower(26, 28, 1, petal, center)}${svgFlower(72, 70, 0.8, petal, center)}${svgFlower(80, 18, 0.55, petal, center)}${svgFlower(16, 76, 0.6, petal, center)}</g></svg>`;
+  }
+  function svgCloudTile() {
+    return `<svg xmlns='http://www.w3.org/2000/svg' width='120' height='84' viewBox='0 0 120 84'><g fill='#cfe3ff' opacity='0.55'><ellipse cx='32' cy='42' rx='22' ry='13'/><ellipse cx='50' cy='34' rx='16' ry='12'/><ellipse cx='62' cy='44' rx='20' ry='11'/></g></svg>`;
+  }
+  const SKINS = {
+    none:     { name: "기본", bg: "", svg: null },
+    daisy:    { name: "데이지 🌼", bg: "#fffdf0", svg: svgFlowerTile("#ffd84d", "#ff924d") },
+    sakura:   { name: "벚꽃 🌸", bg: "#fff5f8", svg: svgFlowerTile("#f3a6c4", "#f7d774") },
+    rose:     { name: "로즈 🌹", bg: "#fff4f3", svg: svgFlowerTile("#f08a8a", "#ffd36b") },
+    lavender: { name: "라벤더 💜", bg: "#f6f3fb", svg: svgFlowerTile("#b8a6e8", "#f7d774") },
+    mint:     { name: "민트 🍃", bg: "#f0faf4", svg: svgFlowerTile("#86e0b0", "#f7d774") },
+    clouds:   { name: "구름 ☁️", bg: "#eef6ff", svg: svgCloudTile() },
+  };
+  function skinBg(id) {
+    const s = SKINS[id] || SKINS.none;
+    if (!s.svg) return "";
+    return `${s.bg} url("data:image/svg+xml,${encodeURIComponent(s.svg)}") repeat`;
+  }
+  function applySkin(id) {
+    if (!SKINS[id]) id = "none";
+    localStorage.setItem("chatSkin", id);
+    const box = $("chatMessages");
+    if (box) box.style.background = skinBg(id); // 빈 문자열이면 CSS 기본(var(--card)) 복귀
+  }
+  function skinPickerHtml() {
+    const cur = localStorage.getItem("chatSkin") || "none";
+    return `<div class="skin-grid">` + Object.entries(SKINS).map(([id, s]) => {
+      const prev = s.svg ? skinBg(id) : "var(--card)";
+      return `<div class="skin-item">
+        <div class="sk-prev" style="background:${prev}"></div>
+        <div class="sk-name">${s.name}</div>
+        <button class="${cur === id ? "sel" : ""}" data-skin="${id}">${cur === id ? "사용중" : "선택"}</button>
+      </div>`;
+    }).join("") + `</div>`;
+  }
+  function openSkin() {
+    openInfoModal("🎨 채팅 배경 스킨", skinPickerHtml());
+    $("modalBody").querySelectorAll("button[data-skin]").forEach((b) => {
+      b.onclick = () => { applySkin(b.dataset.skin); openSkin(); };
     });
   }
 
@@ -1818,6 +1875,7 @@
     });
     $("chatForm").onsubmit = sendChat;
     chatInited = true;
+    applySkin(localStorage.getItem("chatSkin") || "none");
     renderChat(); renderPresence(); renderAttend();
 
     chatStatus = "연결 중…"; renderChat();

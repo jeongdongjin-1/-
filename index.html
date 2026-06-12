@@ -299,6 +299,11 @@
   .media-card:hover .mc-play { background:var(--accent); }
   .media-card.filevid { aspect-ratio:auto; background:#0f172a; color:#cfe0ff; padding:13px 14px; gap:9px; justify-content:flex-start; font-size:13px; }
   .media-card.filevid .mc-play { position:static; width:32px; height:32px; font-size:14px; flex:0 0 auto; }
+  /* 배경음악 토글 */
+  .bgm-toggle { position:fixed; left:16px; bottom:16px; z-index:200; width:44px; height:44px; border-radius:50%;
+    background:var(--card); border:1px solid var(--border); box-shadow:var(--shadow); font-size:18px; cursor:pointer; color:var(--text); }
+  .bgm-toggle.off { opacity:.6; }
+  @media (max-width:640px) { .bgm-toggle { bottom:72px; left:12px; width:40px; height:40px; font-size:16px; } }
   /* 출석체크 */
   .attend-bar { max-width:1100px; margin:0 auto 12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;
     background:var(--card); border:1px solid var(--border); border-radius:14px; padding:10px 16px; box-shadow:var(--shadow); }
@@ -612,6 +617,8 @@
         ※ 로그인·가입 없이 바로 쓰는 익명 공개 토론방(공개 MQTT 브로커)입니다. 최근 100개 메시지만 보관되며, 누구나 볼 수 있으니 개인정보·비방·욕설·투자권유는 삼가주세요.</p>
     </div>
   </div><!-- /tab-chat -->
+
+  <button id="bgmToggle" class="bgm-toggle" title="배경음악 켜기/끄기" aria-label="배경음악">🎵</button>
 
   <div id="mediaModal" class="modal-overlay" style="display:none">
     <div class="modal-box">
@@ -1687,6 +1694,7 @@
   function openMedia(type, data) {
     const ov = $("mediaModal"), body = $("modalBody"), title = $("modalTitle"), open = $("modalOpen");
     open.style.display = ""; // 정보 모달에서 숨겼을 수 있으니 복구
+    bgmDuck(type === "yt" || type === "vid"); // 영상이면 배경음악 음소거
     body.innerHTML = "";
     if (type === "yt") {
       title.textContent = "YouTube"; open.href = "https://www.youtube.com/watch?v=" + data.id;
@@ -1708,7 +1716,7 @@
     }
     ov.style.display = "flex";
   }
-  function closeMedia() { $("modalBody").innerHTML = ""; $("mediaModal").style.display = "none"; }
+  function closeMedia() { $("modalBody").innerHTML = ""; $("mediaModal").style.display = "none"; bgmDuck(false); }
 
   // 채팅하며 보기: 영상을 채팅 상단에 도킹(메시지·입력 그대로 사용 가능)
   function dockPlayer(type, data) {
@@ -1727,6 +1735,7 @@
       `<div class="cp-foot">재생 오류(임베드 차단 영상 등)면 <a href="${esc(openHref)}" target="_blank" rel="noopener noreferrer">↗ 새 탭에서 보기</a></div>`;
     wrap.style.display = "";
     $("chatRoom").classList.add("playing");
+    bgmDuck(true); // 영상 재생 동안 배경음악 음소거
     $("cpClose").onclick = closeDock;
     $("cpExpand").onclick = () => { closeDock(); openMedia(type, data); };
     const v = wrap.querySelector("video");
@@ -1736,6 +1745,7 @@
   function closeDock() {
     $("chatPlayer").innerHTML = ""; $("chatPlayer").style.display = "none";
     $("chatRoom").classList.remove("playing");
+    bgmDuck(false); // 배경음악 복귀
   }
 
   // YouTube IFrame API: 임베드 차단(에러 101/150 등) 감지용
@@ -1853,6 +1863,73 @@
   loadComments();
   scheduleTimer();
   switchTab("chat"); // 접속 시 토론방부터 표시
+
+  /* ===== 배경음악 (Web Audio 앰비언트 · 외부 파일 없음) ===== */
+  let bgmCtx = null, bgmMaster = null, bgmTimer = null, bgmOn = false, bgmStep = 0;
+  const BGM_CHORDS = [
+    [261.63, 329.63, 392.00], // C
+    [220.00, 277.18, 329.63], // Am-ish
+    [349.23, 440.00, 523.25], // F
+    [392.00, 493.88, 587.33], // G
+  ];
+  function bgmPlayChord() {
+    if (!bgmCtx || !bgmMaster) return;
+    const now = bgmCtx.currentTime;
+    const chord = BGM_CHORDS[bgmStep % BGM_CHORDS.length]; bgmStep++;
+    chord.forEach((f, i) => {
+      const o = bgmCtx.createOscillator();
+      o.type = i === 0 ? "sine" : "triangle";
+      o.frequency.value = f; o.detune.value = Math.sin(bgmStep + i) * 4;
+      const g = bgmCtx.createGain(); g.gain.value = 0;
+      o.connect(g); g.connect(bgmMaster);
+      g.gain.linearRampToValueAtTime(0.22, now + 1.6);
+      g.gain.linearRampToValueAtTime(0.0, now + 7.6);
+      o.start(now); o.stop(now + 8);
+    });
+  }
+  function bgmStart() {
+    if (bgmOn) return;
+    try {
+      bgmCtx = bgmCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (bgmCtx.state === "suspended") bgmCtx.resume();
+      bgmMaster = bgmCtx.createGain(); bgmMaster.gain.value = 0;
+      const filt = bgmCtx.createBiquadFilter(); filt.type = "lowpass"; filt.frequency.value = 950;
+      bgmMaster.connect(filt); filt.connect(bgmCtx.destination);
+      bgmMaster.gain.linearRampToValueAtTime(0.06, bgmCtx.currentTime + 3);
+      bgmOn = true; bgmPlayChord();
+      bgmTimer = setInterval(bgmPlayChord, 7000);
+    } catch (e) {}
+    updateBgmIcon();
+  }
+  function bgmStop() {
+    bgmOn = false;
+    if (bgmTimer) { clearInterval(bgmTimer); bgmTimer = null; }
+    if (bgmMaster && bgmCtx) { bgmMaster.gain.cancelScheduledValues(bgmCtx.currentTime); bgmMaster.gain.linearRampToValueAtTime(0, bgmCtx.currentTime + 1); }
+    updateBgmIcon();
+  }
+  function bgmDuck(on) { // 영상 재생 시 음소거(살짝 죽임)
+    if (bgmOn && bgmMaster && bgmCtx) { bgmMaster.gain.cancelScheduledValues(bgmCtx.currentTime); bgmMaster.gain.linearRampToValueAtTime(on ? 0 : 0.06, bgmCtx.currentTime + 0.4); }
+  }
+  function bgmEnabled() { return localStorage.getItem("bgm") !== "off"; }
+  function updateBgmIcon() {
+    const b = $("bgmToggle"); if (!b) return;
+    const en = bgmEnabled();
+    b.textContent = en ? "🎵" : "🔇";
+    b.classList.toggle("off", !en);
+    b.title = en ? "배경음악 끄기" : "배경음악 켜기";
+  }
+  $("bgmToggle").onclick = () => {
+    if (bgmEnabled()) { localStorage.setItem("bgm", "off"); bgmStop(); }
+    else { localStorage.setItem("bgm", "on"); bgmStart(); }
+    updateBgmIcon();
+  };
+  // 접속(첫 사용자 동작)에 맞춰 자동 재생 — 자동재생 정책상 클릭/터치/키 입력 시점에 시작
+  updateBgmIcon();
+  if (bgmEnabled()) {
+    const kick = () => { if (bgmEnabled()) bgmStart(); document.removeEventListener("pointerdown", kick); document.removeEventListener("keydown", kick); };
+    document.addEventListener("pointerdown", kick, { once: true });
+    document.addEventListener("keydown", kick, { once: true });
+  }
 
   // PWA: 서비스워커 등록 (http/https에서만 — file://·Electron 제외)
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {

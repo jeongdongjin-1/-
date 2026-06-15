@@ -2010,7 +2010,7 @@
     $("scSend").onclick = () => sendSuper(amt, $("scMsg").value);
   }
   function sendSuper(amt, msg) {
-    if (getCash() < amt) { alert("캐시가 부족합니다. 💳 충전 후 이용하세요."); return; }
+    if (getCash() < amt) { if (confirm(`캐시가 부족합니다 (보유 ${fmtWon(getCash())}). 충전할까요?`)) openCharge(); return; }
     if (!mqc || !mqc.connected) { alert("연결 중입니다. 잠시 후 다시 시도하세요."); return; }
     setCash(getCash() - amt);
     const nick = curNick();
@@ -2033,7 +2033,7 @@
     const cost = 5000;
     const vid = youtubeId((url || "").trim());
     if (!vid) { alert("유튜브 링크를 정확히 입력하세요."); return; }
-    if (getCash() < cost) { alert("캐시가 부족합니다. 💳 충전 후 이용하세요."); return; }
+    if (getCash() < cost) { if (confirm(`캐시가 부족합니다 (보유 ${fmtWon(getCash())}). 충전할까요?`)) openCharge(); return; }
     if (!mqc || !mqc.connected) { alert("연결 중입니다. 잠시 후 다시 시도하세요."); return; }
     setCash(getCash() - cost);
     const nick = curNick();
@@ -2151,6 +2151,7 @@
     $("vdonBtn").onclick = openVdon;
     $("chargeBtn").onclick = openCharge;
     chatInited = true;
+    if (!localStorage.getItem("cashInit")) { setCash(getCash() + 5000); localStorage.setItem("cashInit", "1"); } // 체험 캐시 지급
     applySkin(localStorage.getItem("chatSkin") || "none");
     renderChat(); renderPresence(); renderAttend();
 

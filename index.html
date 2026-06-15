@@ -396,6 +396,8 @@
   .skin-item button.sel { background:#16a34a; color:#fff; }
   /* 라이브 방송(SOOP풍): 후원 풍선 · LIVE · 시청자수 */
   #donateBtn { background:linear-gradient(90deg,#ffd84d,#ff8a3d); color:#3a1d00; border:none; border-radius:999px; padding:7px 14px; font-size:13px; font-weight:800; cursor:pointer; }
+  #superBtn, #vdonBtn, #chargeBtn { background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:999px; padding:7px 12px; font-size:13px; font-weight:700; cursor:pointer; }
+  #superBtn { border-color:#3498db; color:#1f6aa5; } #vdonBtn { border-color:#7048e8; color:#5b39c4; } #chargeBtn { border-color:var(--accent); color:var(--accent-text); }
   .cmsg.don { align-self:center; max-width:94%; }
   .cmsg.don .head { display:none; }
   .cmsg.don .bubble { background:linear-gradient(90deg,#ffd84d,#ff8a3d); color:#3a1d00; font-weight:800; border:none;
@@ -424,6 +426,20 @@
   .tts-preset.on { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
   .donate-voice { width:100%; padding:9px 11px; margin-top:8px; box-sizing:border-box; }
   .cmsg.don .don-msg { margin-top:6px; font-weight:600; background:rgba(255,255,255,.5); border-radius:9px; padding:6px 11px; word-break:break-word; white-space:pre-wrap; }
+  /* 슈퍼챗 / 영상 도네이션 (유튜브 슈퍼챗 풍) */
+  .cmsg.sc { align-self:stretch; max-width:100%; }
+  .cmsg.sc .head, .cmsg.sc .msg-acts { display:none; }
+  .sc-card { border-radius:12px; padding:10px 14px; box-shadow:0 2px 10px rgba(0,0,0,.18); }
+  .sc-card .sc-head { font-size:13.5px; font-weight:800; display:flex; align-items:center; gap:6px; }
+  .sc-card .sc-msg { margin-top:5px; font-size:14px; font-weight:600; word-break:break-word; white-space:pre-wrap; }
+  /* 충전(모의) */
+  .charge-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin:10px 0; }
+  .charge-grid button { background:var(--accent); color:var(--on-accent); border:none; border-radius:10px; padding:14px; font-size:15px; font-weight:800; cursor:pointer; }
+  .charge-bal { text-align:center; font-size:15px; margin-bottom:6px; }
+  .charge-bal b { color:var(--accent-text); }
+  .sc-amt { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
+  .sc-amt button { flex:1; min-width:74px; border:1px solid var(--border); background:var(--bg); color:var(--text); border-radius:10px; padding:9px; font-size:13px; font-weight:700; cursor:pointer; }
+  .sc-amt button.on { border-color:var(--accent); background:rgba(245,197,24,.18); }
   /* 채팅하며 보기: 상단 도킹 플레이어 */
   .chat-player { max-width:1100px; margin:0 auto 12px; background:#000; border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:var(--shadow); }
   .chat-player .cp-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:7px 10px; background:var(--card); border-bottom:1px solid var(--border); }
@@ -720,7 +736,10 @@
           <button class="chip" data-ch="world">🌐 정세 토론</button>
         </div>
         <input id="chatNick" placeholder="닉네임" maxlength="20" />
-        <button id="donateBtn" type="button" title="후원 풍선 보내기">🎈 후원</button>
+        <button id="donateBtn" type="button" title="후원 풍선 보내기(무료 포인트)">🎈 후원</button>
+        <button id="superBtn" type="button" title="슈퍼챗(캐시)">💎 슈퍼챗</button>
+        <button id="vdonBtn" type="button" title="영상 도네이션(캐시)">🎬 영상도네</button>
+        <button id="chargeBtn" type="button" title="캐시 충전(체험)">💳 충전</button>
       </div>
       <div class="chat-presence" id="chatPresence"></div>
       <div class="attend-bar" id="attendBar"></div>
@@ -1957,6 +1976,74 @@
     closeMedia();
   }
 
+  /* ===== 캐시 충전(모의) · 슈퍼챗 · 영상 도네이션 (SOOP풍) ===== */
+  const getCash = () => parseInt(localStorage.getItem("cash") || "0", 10);
+  const setCash = (v) => localStorage.setItem("cash", String(Math.max(0, Math.floor(v))));
+  const fmtWon = (n) => "₩" + (n || 0).toLocaleString("ko-KR");
+  function superTier(a) {
+    if (a >= 50000) return { c: "#e62117", t: "#fff" };
+    if (a >= 20000) return { c: "#e67e22", t: "#fff" };
+    if (a >= 10000) return { c: "#f1c40f", t: "#1a1a1a" };
+    if (a >= 5000) return { c: "#2ecc71", t: "#fff" };
+    if (a >= 2000) return { c: "#1abc9c", t: "#fff" };
+    return { c: "#3498db", t: "#fff" };
+  }
+  function openCharge() {
+    openInfoModal("💳 캐시 충전 (체험)", `<p class="charge-bal">보유 캐시 <b>${fmtWon(getCash())}</b></p>
+      <p class="donate-note" style="color:var(--up)">⚠ 실제 결제가 아닌 <b>체험용 모의 충전</b>입니다. 실제로 돈이 청구되지 않습니다.</p>
+      <div class="charge-grid">
+        <button data-amt="1000">₩1,000</button><button data-amt="5000">₩5,000</button>
+        <button data-amt="10000">₩10,000</button><button data-amt="30000">₩30,000</button>
+      </div>
+      <p class="donate-note">실제 결제(토스페이먼츠·PortOne 등)는 서버가 필요합니다. 필요하면 백엔드 연동 안내를 드려요.</p>`);
+    $("modalBody").querySelectorAll("button[data-amt]").forEach((b) => b.onclick = () => { setCash(getCash() + parseInt(b.dataset.amt, 10)); openCharge(); });
+  }
+  function openSuper() {
+    const pre = esc(($("chatText").value || "").slice(0, 200));
+    openInfoModal("💎 슈퍼챗 보내기", `<p class="charge-bal">보유 캐시 <b>${fmtWon(getCash())}</b></p>
+      <input id="scMsg" class="donate-msg" maxlength="200" placeholder="슈퍼챗 메시지" value="${pre}" />
+      <div class="sc-amt" id="scAmt">${[1000, 2000, 5000, 10000, 20000, 50000].map((a, i) => `<button data-a="${a}" class="${i === 0 ? "on" : ""}">${fmtWon(a)}</button>`).join("")}</div>
+      <button class="tts-test" id="scSend">💎 슈퍼챗 보내기</button>
+      <p class="donate-note">금액이 클수록 더 눈에 띄는 색으로 채팅에 강조됩니다.</p>`);
+    let amt = 1000;
+    $("scAmt").querySelectorAll("button").forEach((b) => b.onclick = () => { amt = parseInt(b.dataset.a, 10); $("scAmt").querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b)); });
+    $("scSend").onclick = () => sendSuper(amt, $("scMsg").value);
+  }
+  function sendSuper(amt, msg) {
+    if (getCash() < amt) { alert("캐시가 부족합니다. 💳 충전 후 이용하세요."); return; }
+    if (!mqc || !mqc.connected) { alert("연결 중입니다. 잠시 후 다시 시도하세요."); return; }
+    setCash(getCash() - amt);
+    const nick = curNick();
+    const m = { id: myId + "-sc-" + Date.now(), uid: myId, nick, sc: amt, text: (msg || "").trim().slice(0, 200), t: Date.now() };
+    mqc.publish(ctopic(chatChannel, "msg"), JSON.stringify(m), { qos: 0 });
+    addChatMsg(chatChannel, m); renderChat(); publishSnapshot(chatChannel);
+    spawnBalloons(3);
+    $("chatText").value = ""; closeMedia();
+  }
+  function openVdon() {
+    const pre = esc(($("chatText").value || "").slice(0, 200));
+    openInfoModal("🎬 영상 도네이션", `<p class="charge-bal">보유 캐시 <b>${fmtWon(getCash())}</b> · 영상 도네 ₩5,000</p>
+      <input id="vdUrl" class="donate-msg" placeholder="유튜브 링크 (watch / youtu.be / shorts)" />
+      <input id="vdMsg" class="donate-msg" maxlength="200" placeholder="메시지 (선택)" value="${pre}" />
+      <button class="tts-test" id="vdSend">🎬 영상 도네 보내기 (₩5,000)</button>
+      <p class="donate-note">보낸 영상이 모두의 방송 무대(상단 플레이어)에서 자동 재생됩니다.</p>`);
+    $("vdSend").onclick = () => sendVdon($("vdUrl").value, $("vdMsg").value);
+  }
+  function sendVdon(url, msg) {
+    const cost = 5000;
+    const vid = youtubeId((url || "").trim());
+    if (!vid) { alert("유튜브 링크를 정확히 입력하세요."); return; }
+    if (getCash() < cost) { alert("캐시가 부족합니다. 💳 충전 후 이용하세요."); return; }
+    if (!mqc || !mqc.connected) { alert("연결 중입니다. 잠시 후 다시 시도하세요."); return; }
+    setCash(getCash() - cost);
+    const nick = curNick();
+    const m = { id: myId + "-vd-" + Date.now(), uid: myId, nick, vdon: cost, vid, text: (msg || "").trim().slice(0, 200), t: Date.now() };
+    mqc.publish(ctopic(chatChannel, "msg"), JSON.stringify(m), { qos: 0 });
+    addChatMsg(chatChannel, m); renderChat(); publishSnapshot(chatChannel);
+    dockPlayer("yt", { id: vid, url: "https://youtu.be/" + vid }); spawnBalloons(5);
+    $("chatText").value = ""; closeMedia();
+  }
+
   function doCheckIn() {
     const today = todayStr();
     if (localStorage.getItem("attendLast") === today) return;
@@ -2060,6 +2147,9 @@
     });
     $("chatForm").onsubmit = sendChat;
     $("donateBtn").onclick = openDonate;
+    $("superBtn").onclick = openSuper;
+    $("vdonBtn").onclick = openVdon;
+    $("chargeBtn").onclick = openCharge;
     chatInited = true;
     applySkin(localStorage.getItem("chatSkin") || "none");
     renderChat(); renderPresence(); renderAttend();
@@ -2169,6 +2259,8 @@
       const isNew = addChatMsg(ch, data);
       if (isNew && data.streak != null && updateRank({ uid: data.uid, nick: data.nick, streak: data.streak, total: data.total })) renderAttend();
       if (isNew && data.don && data.uid !== myId && ch === chatChannel) donationFx(data.don); // 후원 풍선 연출
+      if (isNew && data.sc && data.uid !== myId && ch === chatChannel) spawnBalloons(2); // 슈퍼챗 연출
+      if (isNew && data.vdon && data.vid && data.uid !== myId && ch === chatChannel) { dockPlayer("yt", { id: data.vid, url: "https://youtu.be/" + data.vid }); spawnBalloons(3); } // 영상 도네 자동재생
       if (isNew && data.uid === myId) publishSnapshot(ch); // 내가 보낸 글 → 히스토리 갱신
     }
     if (ch === chatChannel) renderChat();
@@ -2317,6 +2409,15 @@
   }
 
   function renderMsg(m) {
+    if (m.sc != null) {
+      const tier = superTier(m.sc);
+      const extra = m.text ? `<div class="sc-msg">${esc(maskBad(m.text))}</div>` : "";
+      return `<div class="cmsg sc" data-mid="${esc(m.id)}"><div class="sc-card" style="background:${tier.c};color:${tier.t}"><div class="sc-head">💎 ${esc(m.nick)} · 슈퍼챗 ${fmtWon(m.sc)}</div>${extra}</div></div>`;
+    }
+    if (m.vdon != null) {
+      const extra = m.text ? `<div class="sc-msg">${esc(maskBad(m.text))}</div>` : "";
+      return `<div class="cmsg sc" data-mid="${esc(m.id)}"><div class="sc-card" style="background:#7048e8;color:#fff"><div class="sc-head">🎬 ${esc(m.nick)} · 영상 도네 ${fmtWon(m.vdon)}</div>${extra}</div></div>`;
+    }
     if (m.don) {
       const extra = m.dmsg ? `<div class="don-msg">${esc(maskBad(m.dmsg))}</div>` : "";
       return `<div class="cmsg don" data-mid="${esc(m.id)}"><div class="bubble">🎈 <b>${esc(m.nick)}</b>님 후원 풍선 <b>${m.don}</b>개! 🎉${extra}</div></div>`;

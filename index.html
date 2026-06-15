@@ -394,6 +394,25 @@
   .skin-item .sk-name { font-size:13px; margin:6px 0; }
   .skin-item button { width:100%; border:none; border-radius:8px; padding:7px; font-size:12.5px; font-weight:700; cursor:pointer; background:var(--accent); color:var(--on-accent); }
   .skin-item button.sel { background:#16a34a; color:#fff; }
+  /* AI 토론방 */
+  .ai-bar { max-width:1100px; margin:0 auto 12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .ai-bar input#aiTopic { flex:1; min-width:160px; }
+  .ai-msgs { max-width:1100px; margin:0 auto; height:54vh; min-height:320px; overflow-y:auto;
+    background:var(--card); border:1px solid var(--border); border-radius:16px; padding:14px; box-shadow:var(--shadow);
+    display:flex; flex-direction:column; gap:12px; }
+  .ai-msg { max-width:88%; }
+  .ai-msg .ai-who { font-size:12.5px; font-weight:800; margin-bottom:3px; display:flex; align-items:center; gap:6px; }
+  .ai-msg .ai-av { width:20px; height:20px; border-radius:50%; color:#fff; font-size:11px; display:inline-flex; align-items:center; justify-content:center; font-weight:800; }
+  .ai-msg .ai-bubble { background:var(--bg); border:1px solid var(--border); border-radius:4px 14px 14px 14px; padding:9px 13px; font-size:14px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
+  .ai-msg.q { align-self:center; max-width:94%; }
+  .ai-msg.q .ai-bubble { background:#fff6e8; border-color:#f3d18a; color:#9a6700; text-align:center; border-radius:999px; font-weight:700; }
+  .ai-msg.sys { align-self:center; }
+  .ai-msg.sys .ai-bubble { background:transparent; border:none; color:var(--muted); font-size:12.5px; }
+  .ai-thinking { color:var(--muted); font-size:12.5px; font-style:italic; padding:2px 4px; }
+  .ai-setup { max-width:680px; margin:0 auto; background:var(--card); border:1px solid var(--border); border-radius:16px; padding:20px; box-shadow:var(--shadow); }
+  .ai-setup h3 { font-size:16px; margin-bottom:10px; }
+  .ai-setup input { width:100%; padding:10px 12px; margin:8px 0; box-sizing:border-box; }
+  .ai-setup .warn { color:var(--up); font-size:13px; line-height:1.6; }
   /* 라이브 방송(SOOP풍): 후원 풍선 · LIVE · 시청자수 */
   #donateBtn { background:linear-gradient(90deg,#ffd84d,#ff8a3d); color:#3a1d00; border:none; border-radius:999px; padding:7px 14px; font-size:13px; font-weight:800; cursor:pointer; }
   #superBtn, #vdonBtn, #chargeBtn { background:var(--bg); color:var(--text); border:1px solid var(--border); border-radius:999px; padding:7px 12px; font-size:13px; font-weight:700; cursor:pointer; }
@@ -596,6 +615,7 @@
     <button id="tabBtnBan" onclick="switchTab('ban')"><span class="ti">🛂</span><span class="tl">출국제한</span></button>
     <button id="tabBtnWorld" onclick="switchTab('world')"><span class="ti">🌐</span><span class="tl">세계정세</span></button>
     <button id="tabBtnChat" onclick="switchTab('chat')"><span class="ti">💬</span><span class="tl">토론방</span></button>
+    <button id="tabBtnAi" onclick="switchTab('ai')"><span class="ti">🤖</span><span class="tl">AI토론</span></button>
   </div>
 
   <div id="tab-dashboard">
@@ -757,6 +777,25 @@
         ※ 로그인·가입 없이 바로 쓰는 익명 공개 토론방(공개 MQTT 브로커)입니다. 최근 100개 메시지만 보관되며, 누구나 볼 수 있으니 개인정보·비방·욕설·투자권유는 삼가주세요.</p>
     </div>
   </div><!-- /tab-chat -->
+
+  <div id="tab-ai" style="display:none">
+    <div id="aiSetup" style="display:none"></div>
+    <div id="aiRoom" style="display:none">
+      <div class="ai-bar">
+        <input id="aiTopic" placeholder="토론 주제 (비우면: 원/달러 환율·한국 경제)" />
+        <button id="aiStart">▶ 시작</button>
+        <button id="aiStop">⏸ 정지</button>
+        <button id="aiKeyBtn" class="att-link">🔑 키</button>
+      </div>
+      <div class="ai-msgs" id="aiMsgs"></div>
+      <form class="chat-input" id="aiQForm" autocomplete="off">
+        <input id="aiQ" placeholder="세 AI에게 질문하기 (최대 300자)" maxlength="300" />
+        <button type="submit">질문</button>
+      </form>
+      <p class="news-loading" style="font-size:12px">
+        ※ 제미나이·ChatGPT·클로드 3명이 토론합니다. (Google Gemini API 1개로 세 페르소나를 구동) · 자동 진행, 질문하면 그 질문을 다룹니다.</p>
+    </div>
+  </div><!-- /tab-ai -->
 
   <div id="balloonLayer"></div>
   <button id="themeToggle" class="theme-toggle" title="다크/라이트 모드" aria-label="테마">🌙</button>
@@ -2595,8 +2634,104 @@
     $("chatText").focus();
   }
 
+  /* ===== AI 토론방 (Google Gemini · 제미나이/ChatGPT/클로드 페르소나) ===== */
+  const GEMINI_MODEL = "gemini-2.0-flash";
+  const geminiKey = () => localStorage.getItem("geminiKey") || "";
+  const AI_AGENTS = [
+    { name: "제미나이", color: "#1a73e8", av: "G", sys: "당신은 'Gemini(제미나이)'입니다. 데이터와 근거 중심으로 핵심을 간결하게 한국어 2~3문장으로 말합니다. 다른 AI의 직전 발언에 자연스럽게 반응하며 토론을 이어가세요. 사회자/메타발언 없이 내용만." },
+    { name: "ChatGPT", color: "#10a37f", av: "C", sys: "당신은 'ChatGPT' 역할입니다. 균형 잡히고 친근한 어조로 장단점을 짚으며 한국어 2~3문장으로 토론합니다. 직전 발언에 반응하세요. 내용만 말하세요." },
+    { name: "클로드", color: "#d97706", av: "Cl", sys: "당신은 'Claude(클로드)' 역할입니다. 신중하고 분석적으로 위험·반론·전제를 짚으며 한국어 2~3문장으로 토론합니다. 직전 발언에 반응하세요. 내용만 말하세요." },
+  ];
+  let aiMsgs = [], aiRunning = false, aiTurn = 0, aiQueue = [], aiBusy = false;
+
+  async function callGemini(systemText, userText) {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(geminiKey())}`;
+    const body = {
+      systemInstruction: { parts: [{ text: systemText }] },
+      contents: [{ role: "user", parts: [{ text: userText }] }],
+      generationConfig: { temperature: 0.9, maxOutputTokens: 256 },
+    };
+    const r = await fetchTimeout(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, 20000);
+    if (!r.ok) { const t = await r.text(); throw new Error("Gemini " + r.status + " " + t.slice(0, 140)); }
+    const j = await r.json();
+    const text = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts || []).map((p) => p.text || "").join("").trim();
+    if (!text) throw new Error("빈 응답(차단/모델 확인)");
+    return text;
+  }
+  function aiPush(who, text, color, cls) { aiMsgs.push({ who, text, color, cls }); renderAiMsgs(); }
+  function renderAiMsgs() {
+    const box = $("aiMsgs"); if (!box) return;
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 100;
+    box.innerHTML = aiMsgs.map((m) => {
+      if (m.cls === "q") return `<div class="ai-msg q"><div class="ai-bubble">📢 시청자 질문: ${esc(m.text)}</div></div>`;
+      if (m.cls === "sys") return `<div class="ai-msg sys"><div class="ai-bubble">${esc(m.text)}</div></div>`;
+      const av = AI_AGENTS.find((a) => a.name === m.who);
+      return `<div class="ai-msg"><div class="ai-who"><span class="ai-av" style="background:${m.color}">${av ? av.av : "AI"}</span><span style="color:${m.color}">${esc(m.who)}</span></div><div class="ai-bubble">${esc(m.text)}</div></div>`;
+    }).join("") + (aiBusy ? `<div class="ai-thinking">…AI가 생각 중</div>` : "");
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  }
+  function aiTranscript() { return aiMsgs.filter((m) => !m.cls || m.cls === "q").slice(-8).map((m) => `${m.cls === "q" ? "시청자질문" : m.who}: ${m.text}`).join("\n"); }
+  function aiControls() { $("aiStart").textContent = aiRunning ? "▶ 진행중" : "▶ 시작"; $("aiStart").disabled = aiRunning; $("aiStop").disabled = !aiRunning; }
+
+  async function aiStep(topic) {
+    if (!aiRunning) return;
+    const agent = AI_AGENTS[aiTurn % AI_AGENTS.length]; aiTurn++;
+    let inst = `토론 주제: ${topic}\n\n지금까지 대화:\n${aiTranscript() || "(아직 없음 — 첫 발언을 시작하세요)"}\n`;
+    const q = aiQueue.shift();
+    if (q) { aiPush(null, q, null, "q"); inst += `\n[방금 들어온 시청자 질문] "${q}"\n이 질문을 반드시 반영해서 답하며 토론을 이어가세요.\n`; }
+    inst += `\n이제 ${agent.name}로서 다음 발언을 하세요.`;
+    aiBusy = true; renderAiMsgs();
+    try {
+      const text = await callGemini(agent.sys, inst);
+      aiBusy = false; aiPush(agent.name, text, agent.color);
+    } catch (e) {
+      aiBusy = false; aiRunning = false; aiControls();
+      const msg = String(e.message || "");
+      let hint;
+      if (/429|quota|exceed/i.test(msg)) hint = "Gemini 무료 할당량이 초과됐습니다. 결제(Billing) 설정을 켜거나, 잠시 후 다시 시도하거나, 할당량이 남은 다른 키를 사용하세요.";
+      else if (/400|API_KEY_INVALID|invalid/i.test(msg)) hint = "API 키가 올바르지 않습니다. aistudio.google.com/apikey 에서 'AIza…' 키를 발급받아 🔑 키에 넣어주세요.";
+      else if (/403|PERMISSION|disabled/i.test(msg)) hint = "키 권한/Generative Language API 사용 설정을 확인하세요.";
+      else hint = "네트워크 또는 모델 설정을 확인하세요.";
+      aiPush(null, "⚠ AI 호출 실패 — " + hint + "\n(상세: " + msg.slice(0, 120) + ")", null, "sys");
+      return;
+    }
+    if (aiMsgs.filter((m) => !m.cls).length >= 30) { aiRunning = false; aiControls(); aiPush(null, "자동 토론 30턴 도달 — ▶ 시작으로 이어가거나 질문을 넣어보세요.", null, "sys"); return; }
+    if (aiRunning && !document.hidden) setTimeout(() => aiStep(topic), 8000);
+  }
+  function aiStart() {
+    if (!geminiKey()) { showAiSetup(); return; }
+    if (aiRunning) return;
+    aiRunning = true; aiControls();
+    const topic = ($("aiTopic").value.trim()) || "원/달러 환율 전망과 한국 경제";
+    if (!aiMsgs.length) aiPush(null, `🎙️ 오늘의 주제: "${topic}" — 제미나이·ChatGPT·클로드가 토론합니다.`, null, "sys");
+    aiStep(topic);
+  }
+  function aiStop() { aiRunning = false; aiControls(); }
+  function aiAsk(q) { q = (q || "").trim(); if (!q) return; aiQueue.push(q.slice(0, 300)); if (!aiRunning) aiStart(); }
+  function showAiSetup() {
+    $("aiSetup").style.display = ""; $("aiRoom").style.display = "none";
+    $("aiSetup").innerHTML = `<div class="ai-setup">
+      <h3>🤖 AI 토론방 설정 (Google Gemini)</h3>
+      <p style="font-size:14px;color:var(--muted)">Google Gemini API 키를 입력하면 제미나이·ChatGPT·클로드 3명이 자동 토론합니다.</p>
+      <input id="aiKeyInput" type="password" placeholder="Gemini API 키 (AIza... 형식)" value="${esc(geminiKey())}" />
+      <button id="aiKeySave">저장하고 시작</button>
+      <p class="warn">⚠ 키는 이 브라우저에만 저장되며 서버/저장소에 올리지 않습니다. 단, <b>채팅에 노출된 키는 폐기·재발급</b>을 권장합니다. 키 발급: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a></p>
+    </div>`;
+    $("aiKeySave").onclick = () => { const v = $("aiKeyInput").value.trim(); if (!v) { alert("키를 입력하세요."); return; } localStorage.setItem("geminiKey", v); initAi(); };
+  }
+  function initAi() {
+    if (!geminiKey()) { showAiSetup(); return; }
+    $("aiSetup").style.display = "none"; $("aiRoom").style.display = "";
+    aiControls();
+    $("aiStart").onclick = aiStart; $("aiStop").onclick = aiStop;
+    $("aiKeyBtn").onclick = showAiSetup;
+    $("aiQForm").onsubmit = (e) => { e.preventDefault(); aiAsk($("aiQ").value); $("aiQ").value = ""; };
+    if (!aiMsgs.length) aiStart(); // 자동 시작
+    else renderAiMsgs();
+  }
+
   window.switchTab = function (t) {
-    const map = { dash: "tab-dashboard", ex: "tab-exchange", news: "tab-news", ban: "tab-ban", world: "tab-world", chat: "tab-chat" };
+    const map = { dash: "tab-dashboard", ex: "tab-exchange", news: "tab-news", ban: "tab-ban", world: "tab-world", chat: "tab-chat", ai: "tab-ai" };
     Object.entries(map).forEach(([k, id]) => { $(id).style.display = (k === t) ? "" : "none"; });
     $("tabBtnDash").classList.toggle("active", t === "dash");
     $("tabBtnEx").classList.toggle("active", t === "ex");
@@ -2604,12 +2739,14 @@
     $("tabBtnBan").classList.toggle("active", t === "ban");
     $("tabBtnWorld").classList.toggle("active", t === "world");
     $("tabBtnChat").classList.toggle("active", t === "chat");
+    $("tabBtnAi").classList.toggle("active", t === "ai");
     try {
       if (t === "ex") renderExchange();
       if (t === "news" && !newsLoaded) loadNews();
       if (t === "ban") renderBan();
       if (t === "world") loadWorld();
       if (t === "chat") initChat();
+      if (t === "ai") initAi();
     } catch (err) { console.warn("탭 로드 오류:", err); }
   };
   document.getElementById("worldRefresh").onclick = () => loadWorld(true);

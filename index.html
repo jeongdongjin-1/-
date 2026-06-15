@@ -1281,6 +1281,7 @@
   const NEWS_PROXIES = [
     ...(NEWS_PROXY_CUSTOM ? [u => NEWS_PROXY_CUSTOM + encodeURIComponent(u)] : []),
     u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
+    u => "https://corsproxy.io/?url=" + encodeURIComponent(u) + "&_=" + Math.floor(Date.now() / 1000), // 1차 실패 시 재시도
     u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
   ];
   const NEWS_QUERIES = ["환율", "원/달러 환율", "엔화 환율", "환율 전망", "한국은행 기준금리"];
@@ -1321,9 +1322,10 @@
 
   async function fetchViaProxy(targetUrl) {
     let lastErr;
-    for (const proxy of NEWS_PROXIES) {
+    for (let i = 0; i < NEWS_PROXIES.length; i++) {
+      const proxy = NEWS_PROXIES[i];
       try {
-        const res = await fetchTimeout(proxy(targetUrl), {}, 8000);
+        const res = await fetchTimeout(proxy(targetUrl), {}, 6000); // 백업이 멈춰도 6초면 다음으로
         if (!res.ok) throw new Error("HTTP " + res.status);
         const text = await res.text();
         if (text && text.includes("<item")) return text;
@@ -1363,19 +1365,26 @@
     }
   }
 
-  async function loadNews(force) {
-    renderNewsChips();
-    const box = $("newsList");
-    box.innerHTML = `<div class="news-loading">📰 "${newsQuery}" 관련 최신 기사를 불러오는 중…</div>`;
-    const items = await fetchNewsItems(newsQuery, 20);
-    if (items && items.length) {
-      box.innerHTML = items.map(n => `
+  function newsListHtml(items, stale) {
+    return (stale ? `<div class="news-loading" style="padding:6px 0">⟳ 최신 기사 불러오는 중… (이전 기사 표시)</div>` : "") +
+      items.map(n => `
         <div class="news-item">
           <a href="${n.link}" target="_blank" rel="noopener noreferrer">${n.title}</a>
           <div class="meta">${n.source ? n.source + " · " : ""}${timeAgo(n.date)}</div>
         </div>`).join("");
+  }
+  async function loadNews(force) {
+    renderNewsChips();
+    const box = $("newsList");
+    // 캐시가 있으면 즉시 표시(빈 화면 방지) — stale-while-revalidate
+    const cached = newsCacheGet(newsQuery);
+    if (cached && cached.items && cached.items.length) box.innerHTML = newsListHtml(cached.items, true);
+    else box.innerHTML = `<div class="news-loading">📰 "${newsQuery}" 관련 최신 기사를 불러오는 중…</div>`;
+    const items = await fetchNewsItems(newsQuery, 20);
+    if (items && items.length) {
+      box.innerHTML = newsListHtml(items, false);
       newsLoaded = true;
-    } else {
+    } else if (!(cached && cached.items && cached.items.length)) {
       box.innerHTML = `<div class="news-loading">실시간 기사 로딩에 실패했습니다. ↻ 새로고침을 다시 누르거나, 아래 링크로 확인하세요.<br>
         <a href="${gnewsWebUrl(newsQuery)}" target="_blank" rel="noopener noreferrer">👉 Google 뉴스에서 "${newsQuery}" 직접 보기</a></div>`;
     }
@@ -1592,23 +1601,26 @@
         <div class="wlist" id="w-${s.key}"><span class="m">불러오는 중…</span></div>
         <a class="wmore" href="${gnewsWebUrl(s.query)}" target="_blank" rel="noopener noreferrer">👉 더 보기</a>
       </div>`).join("");
-    // 프록시 과부하 방지를 위해 2개씩 순차 로드
-    for (let i = 0; i < WORLD_SECTIONS.length; i += 2) {
-      await Promise.all(WORLD_SECTIONS.slice(i, i + 2).map(fillWorldSection));
+    // 캐시 먼저 표시 → 한 개씩 순차 로드(간격)로 프록시 레이트리밋 회피
+    WORLD_SECTIONS.forEach((s) => { const c = newsCacheGet(s.query); if (c && c.items && c.items.length) fillWorldList(s, c.items); });
+    for (let i = 0; i < WORLD_SECTIONS.length; i++) {
+      await fillWorldSection(WORLD_SECTIONS[i]);
+      await new Promise((r) => setTimeout(r, 700)); // 요청 간격(프록시 레이트리밋 회피)
     }
     worldLoaded = true;
   }
 
+  function fillWorldList(s, items) {
+    const box = $("w-" + s.key); if (!box) return;
+    box.innerHTML = items.map(n =>
+      `<a href="${n.link}" target="_blank" rel="noopener noreferrer">• ${n.title}<span class="m"> — ${n.source || ""} ${timeAgo(n.date)}</span></a>`
+    ).join("");
+  }
   async function fillWorldSection(s) {
     const box = $("w-" + s.key);
     const items = await fetchNewsItems(s.query, 4);
-    if (items && items.length) {
-      box.innerHTML = items.map(n =>
-        `<a href="${n.link}" target="_blank" rel="noopener noreferrer">• ${n.title}<span class="m"> — ${n.source || ""} ${timeAgo(n.date)}</span></a>`
-      ).join("");
-    } else {
-      box.innerHTML = `<span class="m">기사를 불러오지 못했습니다. '더 보기'로 확인하세요.</span>`;
-    }
+    if (items && items.length) fillWorldList(s, items);
+    else if (box && !box.querySelector("a")) box.innerHTML = `<span class="m">기사를 불러오지 못했습니다. '더 보기'로 확인하세요.</span>`;
   }
 
   /* ===== 토론방 (공개 MQTT 브로커 · 로그인/설정 불필요, 즉시 동작) ===== */

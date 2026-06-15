@@ -739,7 +739,6 @@
 
   <div id="balloonLayer"></div>
   <button id="themeToggle" class="theme-toggle" title="다크/라이트 모드" aria-label="테마">🌙</button>
-  <button id="bgmToggle" class="bgm-toggle" title="배경음악 켜기/끄기" aria-label="배경음악">🎵</button>
 
   <div id="mediaModal" class="modal-overlay" style="display:none">
     <div class="modal-box">
@@ -1703,14 +1702,13 @@
       `<button id="attendBtn" class="${done ? "done" : ""}">${done ? "✅ 출석완료" : "📅 출석체크"}</button>` +
       (b ? `<span class="my-badge" title="${b.label} 등급">${b.icon} ${b.label}</span>` : "") +
       `<span class="attend-info">${streak > 0 ? `<span class="attend-streak">🔥 ${streak}일</span> · ` : ""}누적 <b>${total}</b>일 · 🪙 <b>${pts}</b>P</span>` +
-      `<span class="attend-acts"><button class="att-link" id="rankBtn">🏆 랭킹</button><button class="att-link" id="calBtn">📆 달력</button><button class="att-link" id="shopBtn">🛒 상점</button><button class="att-link" id="skinBtn">🎨 스킨</button><button class="att-link" id="ttsBtn">🔊 음성</button></span>` +
+      `<span class="attend-acts"><button class="att-link" id="rankBtn">🏆 랭킹</button><button class="att-link" id="calBtn">📆 달력</button><button class="att-link" id="shopBtn">🛒 상점</button><button class="att-link" id="skinBtn">🎨 스킨</button></span>` +
       `<span class="attend-today">오늘 <b>${todayCount}</b>명 출석</span>`;
     if (!done) $("attendBtn").onclick = doCheckIn;
     $("rankBtn").onclick = () => openInfoModal("🏆 출석 랭킹 (연속일 TOP)", rankingHtml());
     $("calBtn").onclick = () => openInfoModal("📆 내 출석 달력", calendarHtml());
     $("shopBtn").onclick = openShop;
     $("skinBtn").onclick = openSkin;
-    $("ttsBtn").onclick = openTTS;
   }
 
   /* ===== 포인트 상점 ===== */
@@ -1932,20 +1930,17 @@
   }
   function openDonate() {
     const pre = esc(($("chatText").value || "").slice(0, 200));
-    const curP = localStorage.getItem("donPreset") || localStorage.getItem("ttsPreset") || "normal";
-    const vopts = TTS_PRESETS.map((p) => `<option value="${p.id}" ${p.id === curP ? "selected" : ""}>${p.name}</option>`).join("");
     openInfoModal("🎈 후원 풍선 보내기", `<p class="donate-note">보유 🪙 <b>${myPoints()}</b>P · 풍선 1개 = 1P</p>
       <input id="donMsg" class="donate-msg" maxlength="200" placeholder="후원과 함께 보낼 메시지 (선택)" value="${pre}" />
-      <select id="donVoice" class="donate-voice" title="이 성우 목소리로 후원 메시지가 읽힙니다">${vopts}</select>
       <div class="donate-pick">
         <button data-q="1">🎈 ×1<br><small>1P</small></button>
         <button data-q="2">🎈 ×2<br><small>2P</small></button>
         <button data-q="3">🎈 ×3<br><small>3P</small></button>
       </div>
-      <p class="donate-note">메시지를 적고 풍선 개수를 누르면 <b>후원+메시지</b>가 함께 전송되고, 선택한 <b>성우 목소리로 낭독</b>돼요!</p>`);
-    $("modalBody").querySelectorAll("button[data-q]").forEach((b) => b.onclick = () => sendDonation(parseInt(b.dataset.q, 10), ($("donMsg") || {}).value || "", ($("donVoice") || {}).value || "normal"));
+      <p class="donate-note">메시지를 적고 풍선 개수를 누르면 <b>후원+메시지</b>가 함께 전송되고 화면에 풍선이 떠올라요!</p>`);
+    $("modalBody").querySelectorAll("button[data-q]").forEach((b) => b.onclick = () => sendDonation(parseInt(b.dataset.q, 10), ($("donMsg") || {}).value || ""));
   }
-  function sendDonation(qty, msg, presetId) {
+  function sendDonation(qty, msg) {
     const cost = qty; // 풍선 1개 = 1P
     if (myPoints() < cost) { alert("포인트가 부족합니다. 출석으로 포인트를 모아보세요!"); return; }
     if (!mqc || !mqc.connected) { alert("연결 중입니다. 잠시 후 다시 시도하세요."); return; }
@@ -1953,15 +1948,11 @@
     renderAttend();
     const nick = curNick();
     const dmsg = (msg || "").trim().slice(0, 200);
-    const p = presetById(presetId || "normal");
-    localStorage.setItem("donPreset", p.id);
-    const tts = { rate: p.rate, pitch: p.pitch, voice: localStorage.getItem("ttsVoice") || "" };
     const m = { id: myId + "-don-" + Date.now(), uid: myId, nick, don: qty, t: Date.now(),
-      text: `🎈 ${nick}님이 후원 풍선 ${qty}개를 보냈습니다! 감사합니다 🎉`, dmsg: dmsg || undefined, tts };
+      text: `🎈 ${nick}님이 후원 풍선 ${qty}개를 보냈습니다! 감사합니다 🎉`, dmsg: dmsg || undefined };
     mqc.publish(ctopic(chatChannel, "msg"), JSON.stringify(m), { qos: 0 });
     addChatMsg(chatChannel, m); renderChat(); publishSnapshot(chatChannel);
     donationFx(qty);
-    speak(`${nick}님이 후원 풍선 ${qty}개! ${dmsg ? cleanForTTS(dmsg) : ""}`, tts, true); // 선택 성우로 낭독(강제)
     $("chatText").value = ""; clearReply(); // 입력창 비움(중복 전송 방지)
     closeMedia();
   }
@@ -2178,10 +2169,6 @@
       const isNew = addChatMsg(ch, data);
       if (isNew && data.streak != null && updateRank({ uid: data.uid, nick: data.nick, streak: data.streak, total: data.total })) renderAttend();
       if (isNew && data.don && data.uid !== myId && ch === chatChannel) donationFx(data.don); // 후원 풍선 연출
-      if (isNew && data.uid !== myId && ch === chatChannel && !data.sys) { // 성우 음성 읽기
-        if (data.don) speak(`${data.nick}님이 후원 풍선 ${data.don}개! ${data.dmsg ? cleanForTTS(data.dmsg) : ""}`, data.tts, true); // 후원은 선택 성우로 강제 낭독
-        else speak(`${data.nick}님, ${cleanForTTS(data.text)}`);
-      }
       if (isNew && data.uid === myId) publishSnapshot(ch); // 내가 보낸 글 → 히스토리 갱신
     }
     if (ch === chatChannel) renderChat();
@@ -2594,25 +2581,7 @@
     b.classList.toggle("off", !en);
     b.title = en ? "배경음악 끄기" : "배경음악 켜기";
   }
-  $("bgmToggle").onclick = () => {
-    if (bgmEnabled()) { localStorage.setItem("bgm", "off"); bgmStop(); }
-    else { localStorage.setItem("bgm", "on"); bgmStart(); }
-    updateBgmIcon();
-  };
-  // 접속 시 자동 재생 시도 (브라우저가 허용하면 클릭 없이 바로, 막히면 첫 상호작용에 즉시)
-  updateBgmIcon();
-  if (bgmEnabled()) {
-    bgmStart(); // 로드 즉시 시도 (resume()이 허용되면 무클릭 재생)
-    const events = ["pointerdown", "pointerup", "touchstart", "keydown", "click", "scroll", "mousemove"];
-    const kick = () => {
-      if (!bgmEnabled()) { cleanup(); return; }
-      if (bgmCtx && bgmCtx.state !== "running") bgmCtx.resume().then(() => bgmBegin()).catch(() => {});
-      else bgmStart();
-      if (bgmOn) cleanup();
-    };
-    const cleanup = () => events.forEach((e) => document.removeEventListener(e, kick));
-    events.forEach((e) => document.addEventListener(e, kick, { passive: true }));
-  }
+  // (배경음악 기능 제거됨 — 자동재생/토글 없음)
 
   // 성능: 탭이 안 보일 때 타이머·음악·하트비트 일시정지 → 배터리/CPU 절약
   let hiddenPaused = false;

@@ -1302,7 +1302,6 @@
     ...(NEWS_PROXY_CUSTOM ? [u => NEWS_PROXY_CUSTOM + encodeURIComponent(u)] : []),
     u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
     u => "https://corsproxy.io/?url=" + encodeURIComponent(u) + "&_=" + Math.floor(Date.now() / 1000), // 1차 실패 시 재시도
-    u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u),
   ];
   const NEWS_QUERIES = ["환율", "원/달러 환율", "엔화 환율", "환율 전망", "한국은행 기준금리"];
   let newsQuery = NEWS_QUERIES[0];
@@ -1372,7 +1371,21 @@
   // 통합 뉴스 로더: Google 뉴스 RSS를 CORS 프록시로 가져와 파싱. 실패 시 null.
   function newsCacheGet(query) { try { return JSON.parse(localStorage.getItem("newsCache:" + query) || "null"); } catch (e) { return null; } }
   function newsCacheSet(query, items) { try { localStorage.setItem("newsCache:" + query, JSON.stringify({ t: Date.now(), items })); } catch (e) {} }
+  // rss2json(JSON) 백업 — corsproxy와 독립 인프라라 한쪽이 막혀도 동작
+  async function fetchViaRss2json(query, limit) {
+    await proxyGate();
+    const u = "https://api.rss2json.com/v1/api.json?count=" + limit + "&rss_url=" + encodeURIComponent(gnewsUrl(query));
+    const r = await fetchTimeout(u, {}, 7000);
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    const j = await r.json();
+    if (j.status !== "ok" || !j.items || !j.items.length) throw new Error("no items");
+    return j.items.slice(0, limit).map((it) => {
+      const m = (it.title || "").match(/^(.*) - ([^-]{2,20})$/);
+      return { title: m ? m[1].trim() : (it.title || "").trim(), source: m ? m[2].trim() : "", link: it.link || "#", date: it.pubDate || "" };
+    });
+  }
   async function fetchNewsItems(query, limit) {
+    // 1) corsproxy(XML)
     try {
       const xml = await fetchViaProxy(gnewsUrl(query));
       const doc = new DOMParser().parseFromString(xml, "text/xml");
@@ -1385,12 +1398,16 @@
           date: it.querySelector("pubDate")?.textContent || "",
         };
       });
-      if (items.length) newsCacheSet(query, items); // 성공 시 캐시
-      return items;
-    } catch (e) {
-      const c = newsCacheGet(query);            // 실패 시 마지막 성공분 표시(빈 화면 방지)
-      return c && c.items ? c.items.slice(0, limit) : null;
-    }
+      if (items.length) { newsCacheSet(query, items); return items; }
+    } catch (e) { /* 다음 백업으로 */ }
+    // 2) rss2json(JSON) 백업
+    try {
+      const items = await fetchViaRss2json(query, limit);
+      if (items.length) { newsCacheSet(query, items); return items; }
+    } catch (e) { /* 캐시로 */ }
+    // 3) 마지막 성공분 캐시(빈 화면 방지)
+    const c = newsCacheGet(query);
+    return c && c.items ? c.items.slice(0, limit) : null;
   }
 
   function newsListHtml(items, stale) {

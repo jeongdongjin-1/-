@@ -430,6 +430,17 @@
   .vtile .vkick { position:absolute; top:6px; right:6px; border:none; background:rgba(224,49,49,.9); color:#fff; padding:3px 8px; border-radius:999px; cursor:pointer; font-size:11px; font-weight:700; opacity:0; transition:opacity .15s; }
   .vtile:hover .vkick { opacity:1; }
   .vtile .vtag { position:absolute; top:6px; right:6px; background:rgba(0,0,0,.55); color:#fff; font-size:11px; padding:2px 8px; border-radius:999px; }
+  .vtile .vmute { position:absolute; top:6px; left:6px; background:rgba(224,49,49,.92); color:#fff; font-size:12px; padding:2px 7px; border-radius:999px; display:none; }
+  .vtile.muted .vmute { display:inline-block; }
+  .vtile .vhost { position:absolute; bottom:8px; left:8px; transform:translateY(-22px); background:var(--accent); color:var(--on-accent); font-size:10px; font-weight:800; padding:1px 7px; border-radius:999px; display:none; }
+  .vtile.host-tile .vhost { display:inline-block; }
+  /* 강퇴 버튼은 방장에게만 (그리드에 host 클래스가 있을 때) */
+  .meet-grid .vtile .vkick { display:none; }
+  .meet-grid.host .vtile:hover .vkick { display:block; opacity:1; }
+  .meet-room-label { font-size:12px; font-weight:800; color:var(--on-accent); background:var(--accent); padding:3px 10px; border-radius:999px; margin-right:6px; }
+  .meet-controls button#meetShare.live { background:#16a34a; color:#fff; border-color:#16a34a; }
+  .ppl-item .ppl-mute { flex:none; font-size:12px; }
+  .ppl-item .ppl-host { flex:none; font-size:10px; font-weight:800; color:var(--on-accent); background:var(--accent); padding:1px 6px; border-radius:999px; }
   .meet-controls { margin:14px auto 0; display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap; }
   .meet-controls button { font-size:18px; width:50px; height:50px; border-radius:50%; border:1px solid var(--border); background:var(--card); cursor:pointer; }
   .meet-controls button#meetLeave { width:auto; border-radius:999px; padding:0 18px; background:#e03131; color:#fff; border:none; font-weight:700; }
@@ -904,7 +915,8 @@
       <div class="meet-lobby">
         <h3>📹 화상회의</h3>
         <p style="font-size:14px;color:var(--muted)">카메라·마이크로 다른 접속자와 실시간 화상 회의를 합니다. (WebRTC P2P)</p>
-        <input id="meetNick" placeholder="닉네임" maxlength="20" />
+        <input id="meetNick" placeholder="닉네임" maxlength="20" /><br>
+        <input id="meetRoomCode" placeholder="방 코드 (비우면 공개방)" maxlength="24" />
         <div style="margin:10px 0">
           <label style="font-size:13px;color:var(--muted)">자동 요약 시간&nbsp;
             <select id="meetDur" style="padding:7px 10px">
@@ -924,6 +936,7 @@
       <div class="meet-layout">
         <div class="meet-main">
           <div class="meet-splitbar">
+            <span id="meetRoomLabel" class="meet-room-label">🌐 공개방</span>
             <span class="msb-label">화면 분할</span>
             <button class="msb active" data-split="0">자동</button>
             <button class="msb" data-split="2">2분할</button>
@@ -938,6 +951,7 @@
           <div class="meet-controls">
             <button id="meetMic" title="마이크">🎤</button>
             <button id="meetCam" title="카메라">📷</button>
+            <button id="meetShare" title="화면 공유">🖥</button>
             <button id="meetStt" title="음성 자막 (말하면 채팅에 자동 입력)" class="meet-cc off">CC</button>
             <button id="meetTrans" title="영어 자동 번역 (채팅·자막을 영어로)" class="meet-cc off">EN</button>
             <button id="meetSummary" title="지금 요약하기">📝</button>
@@ -2984,15 +2998,17 @@
   }
 
   /* ===== 화상회의 (WebRTC P2P · MQTT 시그널링) ===== */
-  const RTC_TOPIC = `${TOPIC_BASE}/rtc`;
+  const RTC_BASE = `${TOPIC_BASE}/rtc`;
+  let vcTopic = RTC_BASE; // 방 코드가 있으면 RTC_BASE/<code> 로 분리
   const RTC_ICE = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
   let vcMqc = null, vcStream = null, vcPeers = {}, vcOn = false, vcMicOn = true, vcCamOn = true, vcWired = false;
   let vcStt = null, vcSttWant = false, vcLog = [], vcSumTimer = null, vcTimerInt = null, vcSumMin = 0, vcStartTs = 0, vcSummarizing = false;
   let vcTransOn = true, mcSeq = 0; const transCache = {}; // 화상회의 자동 번역 기본 ON
   let vcAudioCtx = null, vcMeters = {}, vcMeterRAF = 0;
   let vcDocLast = 0, vcDocTimer = null;
+  let vcScreen = null, vcScreenTrack = null; const vcMute = {}; // 화면공유 / 참가자 음소거 상태
   const meetNick = () => ($("meetNick").value.trim() || "익명").slice(0, 20);
-  function rtcSend(m) { if (vcMqc && vcMqc.connected) vcMqc.publish(RTC_TOPIC, JSON.stringify(m), { qos: 0 }); }
+  function rtcSend(m) { if (vcMqc && vcMqc.connected) vcMqc.publish(vcTopic, JSON.stringify(m), { qos: 0 }); }
 
   function vcTile(id, label, stream, isLocal) {
     let tile = document.getElementById("vtile-" + id);
@@ -3000,12 +3016,14 @@
       tile = document.createElement("div"); tile.className = "vtile"; tile.id = "vtile-" + id; tile.draggable = true;
       tile.innerHTML = `<video autoplay playsinline ${isLocal ? "muted" : ""}></video><span class="vlabel"></span>` +
         `<div class="vmeter" title="음성 레벨"><i class="vmeter-fill"></i></div>` +
+        `<span class="vmute" title="음소거됨">🔇</span><span class="vhost">👑 방장</span>` +
         (isLocal ? `<span class="vtag">나</span>` : `<button class="vkick" data-id="${esc(id)}" draggable="false" title="이 참가자 강퇴">⛔ 강퇴</button>`);
       $("meetGrid").appendChild(tile);
     }
     tile.querySelector(".vlabel").textContent = label;
     const v = tile.querySelector("video"); if (v.srcObject !== stream) v.srcObject = stream;
     vcMeterSetup(id, stream);
+    meetTileMute(id, isLocal ? vcMicOn : (vcMute[id] !== false)); // 저장된 음소거 상태 반영
     vcCount();
   }
   function vcRemoveTile(id) { vcMeterTeardown(id); const t = document.getElementById("vtile-" + id); if (t) t.remove(); vcCount(); }
@@ -3073,12 +3091,49 @@
     if (vcMeterRAF) { cancelAnimationFrame(vcMeterRAF); vcMeterRAF = 0; }
     if (vcAudioCtx) { try { vcAudioCtx.close(); } catch (e) {} vcAudioCtx = null; }
   }
-  function vcCount() { const n = $("meetGrid").querySelectorAll(".vtile").length; $("meetCount").textContent = "참가자 " + n + "명"; renderMeetPeople(); }
+  function vcCount() { const n = $("meetGrid").querySelectorAll(".vtile").length; $("meetCount").textContent = "참가자 " + n + "명"; meetUpdateHost(); renderMeetPeople(); }
+  /* 방장 = 현재 참가자 중 id 사전순 최소 (서버 없이 결정적으로 합의) */
+  function meetHostId() { const ids = [myId].concat(Object.keys(vcPeers)); ids.sort(); return ids[0]; }
+  function meetIsHost() { return meetHostId() === myId; }
+  function meetUpdateHost() {
+    const host = meetHostId(); const grid = $("meetGrid");
+    if (grid) grid.classList.toggle("host", host === myId);
+    document.querySelectorAll("#meetGrid .vtile").forEach((t) => { t.classList.toggle("host-tile", t.id === "vtile-" + host); });
+  }
+  /* 음소거 상태 표시 */
+  function meetTileMute(id, micOn) { const t = document.getElementById("vtile-" + id); if (t) t.classList.toggle("muted", micOn === false); }
+  function meetBroadcastState() { rtcSend({ t: "state", from: myId, mic: vcMicOn, cam: vcCamOn }); }
+
+  /* 화면 공유 (getDisplayMedia + replaceTrack — 재협상 없이 영상 트랙 교체) */
+  async function meetShareToggle() {
+    if (!vcOn) return;
+    if (vcScreen) { meetStopShare(); return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) { alert("이 브라우저/기기는 화면 공유를 지원하지 않습니다. 데스크톱 크롬·엣지를 사용해 주세요."); return; }
+    let ds; try { ds = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false }); } catch (e) { return; }
+    vcScreen = ds; vcScreenTrack = ds.getVideoTracks()[0];
+    Object.values(vcPeers).forEach((p) => { const s = p.pc.getSenders().find((x) => x.track && x.track.kind === "video"); if (s) s.replaceTrack(vcScreenTrack); });
+    const lt = document.getElementById("vtile-" + myId); if (lt) lt.querySelector("video").srcObject = new MediaStream([vcScreenTrack].concat(vcStream.getAudioTracks()));
+    vcScreenTrack.onended = () => meetStopShare(); // 브라우저 ‘공유 중지’ 버튼
+    $("meetShare").classList.add("live"); $("meetShare").textContent = "🛑";
+    meetChatSys("🖥 화면 공유를 시작했습니다.");
+    rtcSend({ t: "chat", from: myId, nick: meetNick(), text: "🖥 화면 공유를 시작했습니다." });
+  }
+  function meetStopShare() {
+    if (!vcScreen) return;
+    const cam = vcStream && vcStream.getVideoTracks()[0];
+    Object.values(vcPeers).forEach((p) => { const s = p.pc.getSenders().find((x) => x.track && x.track.kind === "video"); if (s && cam) s.replaceTrack(cam); });
+    try { vcScreen.getTracks().forEach((t) => t.stop()); } catch (e) {}
+    vcScreen = null; vcScreenTrack = null;
+    const lt = document.getElementById("vtile-" + myId); if (lt) lt.querySelector("video").srcObject = vcStream;
+    $("meetShare").classList.remove("live"); $("meetShare").textContent = "🖥";
+    meetChatSys("🖥 화면 공유를 종료했습니다.");
+  }
 
   function vcMakePeer(id, nick) {
     if (vcPeers[id]) return vcPeers[id];
     const pc = new RTCPeerConnection({ iceServers: RTC_ICE });
     vcStream.getTracks().forEach((tr) => pc.addTrack(tr, vcStream));
+    if (vcScreenTrack) { const s = pc.getSenders().find((x) => x.track && x.track.kind === "video"); if (s) s.replaceTrack(vcScreenTrack); } // 공유 중 입장한 피어에도 화면 송출
     pc.onicecandidate = (e) => { if (e.candidate) rtcSend({ t: "ice", from: myId, to: id, cand: e.candidate }); };
     pc.ontrack = (e) => vcTile(id, (vcPeers[id] && vcPeers[id].nick) || "상대", e.streams[0], false);
     pc.onconnectionstatechange = () => { if (["failed", "closed"].includes(pc.connectionState)) vcRemovePeer(id); };
@@ -3099,16 +3154,18 @@
         if (m.fx) { meetCelebrate(); meetChatSys("🎉 " + (m.nick || "누군가") + "님이 폭죽을 쏘았습니다!"); return; }
         meetChatAdd(m.nick || "익명", m.text || "", false, !!m.voice); return;
       }
+      if (m.t === "state") { vcMute[m.from] = m.mic !== false; if (vcPeers[m.from]) vcPeers[m.from].cam = m.cam; meetTileMute(m.from, m.mic); renderMeetPeople(); return; }
       if (m.t === "doc") { const ta = $("meetDoc"); if (ta && document.activeElement !== ta && (m.ts || 0) >= vcDocLast) { ta.value = m.text || ""; vcDocLast = m.ts || 0; } return; }
       if (m.t === "hello") {
-        rtcSend({ t: "hi", from: myId, to: m.from, nick: meetNick() });
+        vcMute[m.from] = m.mic !== false;
+        rtcSend({ t: "hi", from: myId, to: m.from, nick: meetNick(), mic: vcMicOn, cam: vcCamOn });
         meetChatSys("🎉 " + (m.nick || "누군가") + "님이 입장했습니다!");
         meetCelebrate(); // 새 참가자 입장 축하 폭죽
-
         const dv = $("meetDoc"); if (dv && dv.value) rtcSend({ t: "doc", from: myId, to: m.from, text: dv.value, ts: vcDocLast || 1 }); // 새 참가자에게 현재 문서 동기화
-        if (myId > m.from) vcOffer(m.from, m.nick); return;
+        if (myId > m.from) vcOffer(m.from, m.nick);
+        renderMeetPeople(); return;
       }
-      if (m.t === "hi") { if (myId > m.from && !vcPeers[m.from]) vcOffer(m.from, m.nick); return; }
+      if (m.t === "hi") { vcMute[m.from] = m.mic !== false; if (myId > m.from && !vcPeers[m.from]) vcOffer(m.from, m.nick); renderMeetPeople(); return; }
       if (m.t === "offer") {
         const peer = vcMakePeer(m.from, m.nick); peer.nick = m.nick || peer.nick;
         await peer.pc.setRemoteDescription(m.sdp); await vcFlushIce(peer);
@@ -3125,7 +3182,7 @@
       if (m.t === "leave") { const p = vcPeers[m.from]; if (p) meetChatSys((p.nick || "누군가") + "님이 퇴장했습니다."); vcRemovePeer(m.from); return; }
     } catch (e) { console.warn("rtc", e); }
   }
-  function vcRemovePeer(id) { const p = vcPeers[id]; if (p) { try { p.pc.close(); } catch (e) {} delete vcPeers[id]; } vcRemoveTile(id); }
+  function vcRemovePeer(id) { const p = vcPeers[id]; if (p) { try { p.pc.close(); } catch (e) {} delete vcPeers[id]; } delete vcMute[id]; vcRemoveTile(id); }
 
   /* 화상회의 채팅 */
   function meetChatAppend(html) {
@@ -3364,10 +3421,16 @@
     catch (e) { alert("카메라/마이크를 사용할 수 없습니다: " + e.message); return; }
     vcOn = true; vcMicOn = true; vcCamOn = true;
     localStorage.setItem("chatNick", meetNick());
+    // 방 코드 → 토픽 분리(비밀방). 비우면 공개방.
+    const code = ($("meetRoomCode").value || "").trim().slice(0, 24).replace(/[^A-Za-z0-9가-힣_-]/g, "");
+    vcTopic = RTC_BASE + (code ? "/" + encodeURIComponent(code) : "/public");
+    localStorage.setItem("meetRoomCode", code);
     $("meetLobby").style.display = "none"; $("meetRoom").style.display = "";
+    $("meetRoomLabel").textContent = code ? ("🔒 방: " + code) : "🌐 공개방";
     $("meetChatMsgs").innerHTML = ""; vcLog = [];
-    meetChatSys("🎉 회의에 입장했습니다! 환영합니다 🎊");
-    meetChatSys("🖱 참가자 화면을 드래그하면 위치를 바꿀 수 있고, 마우스를 올리면 ⛔강퇴 버튼이 나타납니다.");
+    meetChatSys(code ? ("🔒 비밀방 ‘" + code + "’ 에 입장했습니다. 같은 방 코드를 입력한 사람만 연결됩니다.") : "🌐 공개방에 입장했습니다. (방 코드를 정하면 비밀방으로 쓸 수 있어요)");
+    meetChatSys("🎉 환영합니다 🎊");
+    meetChatSys("🖱 참가자 화면을 드래그하면 위치를 바꿀 수 있습니다. (방장만 ⛔강퇴 가능)");
     meetCelebrate(); // 입장 축하 폭죽
     vcTile(myId, "나 (" + meetNick() + ")", vcStream, true);
     // 자동 요약 타이머
@@ -3392,13 +3455,14 @@
     $("meetTrans").classList.toggle("live", vcTransOn); $("meetTrans").classList.toggle("off", !vcTransOn);
     meetSetLayout(0); meetSideTab("chat"); $("meetCaption").classList.remove("show");
     const ok = await ensureMqttLib(); if (!ok || !window.mqtt) { alert("연결 라이브러리를 불러오지 못했습니다."); meetLeave(); return; }
-    vcMqc = window.mqtt.connect(MQTT_URL, { clientId: "krwrtc-" + myId, reconnectPeriod: 3000, will: { topic: RTC_TOPIC, payload: JSON.stringify({ t: "leave", from: myId }), qos: 0 } });
-    vcMqc.on("connect", () => { vcMqc.subscribe(RTC_TOPIC); rtcSend({ t: "hello", from: myId, nick: meetNick() }); });
+    vcMqc = window.mqtt.connect(MQTT_URL, { clientId: "krwrtc-" + myId, reconnectPeriod: 3000, will: { topic: vcTopic, payload: JSON.stringify({ t: "leave", from: myId }), qos: 0 } });
+    vcMqc.on("connect", () => { vcMqc.subscribe(vcTopic); rtcSend({ t: "hello", from: myId, nick: meetNick(), mic: vcMicOn, cam: vcCamOn }); });
     vcMqc.on("message", (_t, p) => { let m; try { m = JSON.parse(p.toString()); } catch (e) { return; } onRtc(m); });
   }
   function meetLeaveQuiet() { try { rtcSend({ t: "leave", from: myId }); } catch (e) {} }
   function meetLeave() {
     meetLeaveQuiet();
+    meetStopShare();
     meetSttStop();
     vcMetersStop();
     if (vcTimerInt) { clearInterval(vcTimerInt); vcTimerInt = null; }
@@ -3449,10 +3513,16 @@
   function renderMeetPeople() {
     const box = $("meetPplList"); if (!box) return;
     const ids = Object.keys(vcPeers);
-    const me = `<div class="ppl-item"><span class="ppl-dot me"></span><span class="ppl-name">${esc(meetNick())} (나)</span></div>`;
+    const host = meetHostId(); const iAmHost = host === myId;
+    const meHost = host === myId ? `<span class="ppl-host">👑 방장</span>` : "";
+    const meMute = !vcMicOn ? `<span class="ppl-mute" title="음소거">🔇</span>` : "";
+    const me = `<div class="ppl-item"><span class="ppl-dot me"></span><span class="ppl-name">${esc(meetNick())} (나)</span>${meHost}${meMute}</div>`;
     const others = ids.map((id) => {
       const p = vcPeers[id];
-      return `<div class="ppl-item"><span class="ppl-dot"></span><span class="ppl-name">${esc((p && p.nick) || "참가자")}</span><button class="ppl-kick" data-id="${esc(id)}">강퇴</button></div>`;
+      const hb = host === id ? `<span class="ppl-host">👑 방장</span>` : "";
+      const mb = vcMute[id] === false ? `<span class="ppl-mute" title="음소거">🔇</span>` : "";
+      const kick = iAmHost ? `<button class="ppl-kick" data-id="${esc(id)}">강퇴</button>` : "";
+      return `<div class="ppl-item"><span class="ppl-dot"></span><span class="ppl-name">${esc((p && p.nick) || "참가자")}</span>${hb}${mb}${kick}</div>`;
     }).join("");
     box.innerHTML = me + others;
     const t = $("meetTabPpl"); if (t) t.textContent = "👥 " + (ids.length + 1);
@@ -3460,17 +3530,20 @@
 
   function initMeet() {
     if (!$("meetNick").value) $("meetNick").value = localStorage.getItem("chatNick") || "";
+    if (!$("meetRoomCode").value) $("meetRoomCode").value = localStorage.getItem("meetRoomCode") || "";
     if (vcWired) return;
     $("meetJoin").onclick = meetJoin;
     $("meetMic").onclick = () => {
       vcMicOn = !vcMicOn;
       if (vcStream) vcStream.getAudioTracks().forEach((t) => t.enabled = vcMicOn);
       $("meetMic").classList.toggle("off", !vcMicOn); $("meetMic").textContent = vcMicOn ? "🎤" : "🔇";
+      meetTileMute(myId, vcMicOn); meetBroadcastState(); // 내 음소거 상태 표시·공유
       // 음소거하면 음성 자막도 멈추고, 다시 켜면 재개
       if (!vcMicOn && vcStt) { try { vcStt.onend = null; vcStt.stop(); } catch (e) {} vcStt = null; }
       else if (vcMicOn && vcSttWant && !vcStt) meetSttStart();
     };
-    $("meetCam").onclick = () => { vcCamOn = !vcCamOn; if (vcStream) vcStream.getVideoTracks().forEach((t) => t.enabled = vcCamOn); $("meetCam").classList.toggle("off", !vcCamOn); $("meetCam").textContent = vcCamOn ? "📷" : "🚫"; };
+    $("meetCam").onclick = () => { vcCamOn = !vcCamOn; if (vcStream) vcStream.getVideoTracks().forEach((t) => t.enabled = vcCamOn); $("meetCam").classList.toggle("off", !vcCamOn); $("meetCam").textContent = vcCamOn ? "📷" : "🚫"; meetBroadcastState(); };
+    $("meetShare").onclick = meetShareToggle;
     $("meetStt").onclick = meetSttToggle;
     $("meetTrans").onclick = meetTransToggle;
     $("meetSummary").onclick = () => meetSummarize(false);

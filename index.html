@@ -3040,7 +3040,9 @@
       if (m.t === "doc") { const ta = $("meetDoc"); if (ta && document.activeElement !== ta && (m.ts || 0) >= vcDocLast) { ta.value = m.text || ""; vcDocLast = m.ts || 0; } return; }
       if (m.t === "hello") {
         rtcSend({ t: "hi", from: myId, to: m.from, nick: meetNick() });
-        meetChatSys((m.nick || "누군가") + "님이 입장했습니다.");
+        meetChatSys("🎉 " + (m.nick || "누군가") + "님이 입장했습니다!");
+        meetCelebrate(); // 새 참가자 입장 축하 폭죽
+
         const dv = $("meetDoc"); if (dv && dv.value) rtcSend({ t: "doc", from: myId, to: m.from, text: dv.value, ts: vcDocLast || 1 }); // 새 참가자에게 현재 문서 동기화
         if (myId > m.from) vcOffer(m.from, m.nick); return;
       }
@@ -3302,8 +3304,9 @@
     localStorage.setItem("chatNick", meetNick());
     $("meetLobby").style.display = "none"; $("meetRoom").style.display = "";
     $("meetChatMsgs").innerHTML = ""; vcLog = [];
-    meetChatSys("회의에 입장했습니다. 대화를 시작해 보세요 💬");
+    meetChatSys("🎉 회의에 입장했습니다! 환영합니다 🎊");
     meetChatSys("🖱 참가자 화면을 드래그하면 위치를 바꿀 수 있고, 마우스를 올리면 ⛔강퇴 버튼이 나타납니다.");
+    meetCelebrate(); // 입장 축하 폭죽
     vcTile(myId, "나 (" + meetNick() + ")", vcStream, true);
     // 자동 요약 타이머
     vcSumMin = parseInt($("meetDur").value, 10) || 0;

@@ -449,6 +449,12 @@
   .emoji-pop button:hover { background:var(--bg); }
   .meet-doc-info { padding:8px 10px; font-size:11.5px; color:var(--muted); border-bottom:1px solid var(--border); }
   #meetDoc { flex:1; width:100%; border:none; outline:none; resize:none; padding:10px 12px; font-size:13px; line-height:1.6; background:var(--card); color:var(--text); font-family:inherit; }
+  .meet-ppl-list { flex:1; overflow-y:auto; padding:6px 8px; }
+  .ppl-item { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:8px; font-size:13.5px; }
+  .ppl-item:hover { background:var(--bg); }
+  .ppl-item .ppl-dot { width:8px; height:8px; border-radius:50%; background:#16a34a; flex:none; box-shadow:0 0 6px #16a34a; }
+  .ppl-item .ppl-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+  .ppl-item .ppl-kick { flex:none; border:none; background:#e03131; color:#fff; font-size:11px; font-weight:700; padding:3px 9px; border-radius:999px; cursor:pointer; }
   .meet-chat-msgs { flex:1; overflow-y:auto; padding:10px 12px; display:flex; flex-direction:column; gap:7px; }
   .mc-msg { font-size:13px; line-height:1.45; word-break:break-word; }
   .mc-msg .mc-nick { font-weight:700; }
@@ -940,6 +946,7 @@
           <div class="meet-chat-head">
             <div class="meet-side-tabs">
               <button id="meetTabChat" class="active">💬 채팅</button>
+              <button id="meetTabPpl">👥 참가자</button>
               <button id="meetTabDoc">📄 문서</button>
             </div>
             <button id="meetChatClose" title="닫기">✕</button>
@@ -953,6 +960,10 @@
               <input id="meetChatInput" placeholder="메시지 입력…" maxlength="300" autocomplete="off" />
               <button type="submit">전송</button>
             </form>
+          </div>
+          <div id="meetPplPane" class="meet-side-pane" style="display:none">
+            <div class="meet-doc-info">현재 회의 참가자</div>
+            <div class="meet-ppl-list" id="meetPplList"></div>
           </div>
           <div id="meetDocPane" class="meet-side-pane" style="display:none">
             <div class="meet-doc-info">📄 함께 편집하는 회의 문서 — 입력하면 참가자 모두에게 실시간 공유됩니다.</div>
@@ -3049,7 +3060,7 @@
     if (vcMeterRAF) { cancelAnimationFrame(vcMeterRAF); vcMeterRAF = 0; }
     if (vcAudioCtx) { try { vcAudioCtx.close(); } catch (e) {} vcAudioCtx = null; }
   }
-  function vcCount() { const n = $("meetGrid").querySelectorAll(".vtile").length; $("meetCount").textContent = "참가자 " + n + "명"; }
+  function vcCount() { const n = $("meetGrid").querySelectorAll(".vtile").length; $("meetCount").textContent = "참가자 " + n + "명"; renderMeetPeople(); }
 
   function vcMakePeer(id, nick) {
     if (vcPeers[id]) return vcPeers[id];
@@ -3414,11 +3425,24 @@
     }, 250);
   }
   function meetSideTab(which) {
-    const chat = which === "chat";
-    $("meetChatPane").style.display = chat ? "" : "none";
-    $("meetDocPane").style.display = chat ? "none" : "";
-    $("meetTabChat").classList.toggle("active", chat);
-    $("meetTabDoc").classList.toggle("active", !chat);
+    $("meetChatPane").style.display = which === "chat" ? "" : "none";
+    $("meetPplPane").style.display = which === "ppl" ? "" : "none";
+    $("meetDocPane").style.display = which === "doc" ? "" : "none";
+    $("meetTabChat").classList.toggle("active", which === "chat");
+    $("meetTabPpl").classList.toggle("active", which === "ppl");
+    $("meetTabDoc").classList.toggle("active", which === "doc");
+    if (which === "ppl") renderMeetPeople();
+  }
+  function renderMeetPeople() {
+    const box = $("meetPplList"); if (!box) return;
+    const ids = Object.keys(vcPeers);
+    const me = `<div class="ppl-item"><span class="ppl-dot me"></span><span class="ppl-name">${esc(meetNick())} (나)</span></div>`;
+    const others = ids.map((id) => {
+      const p = vcPeers[id];
+      return `<div class="ppl-item"><span class="ppl-dot"></span><span class="ppl-name">${esc((p && p.nick) || "참가자")}</span><button class="ppl-kick" data-id="${esc(id)}">강퇴</button></div>`;
+    }).join("");
+    box.innerHTML = me + others;
+    const t = $("meetTabPpl"); if (t) t.textContent = "👥 " + (ids.length + 1);
   }
 
   function initMeet() {
@@ -3453,7 +3477,9 @@
     const savedSize = localStorage.getItem("meetSize"); if (savedSize) $("meetSize").value = savedSize;
     $("meetSize").addEventListener("input", applyMeetSize); applyMeetSize();
     $("meetTabChat").onclick = () => meetSideTab("chat");
+    $("meetTabPpl").onclick = () => meetSideTab("ppl");
     $("meetTabDoc").onclick = () => meetSideTab("doc");
+    $("meetPplList").addEventListener("click", (e) => { const k = e.target.closest(".ppl-kick"); if (k) meetKick(k.dataset.id); });
     $("meetDoc").addEventListener("input", meetDocChanged);
     window.addEventListener("pagehide", () => { if (vcOn) meetLeaveQuiet(); });
     vcWired = true;

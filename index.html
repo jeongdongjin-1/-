@@ -394,6 +394,19 @@
   .skin-item .sk-name { font-size:13px; margin:6px 0; }
   .skin-item button { width:100%; border:none; border-radius:8px; padding:7px; font-size:12.5px; font-weight:700; cursor:pointer; background:var(--accent); color:var(--on-accent); }
   .skin-item button.sel { background:#16a34a; color:#fff; }
+  /* 화상회의 */
+  .meet-lobby { max-width:560px; margin:0 auto; text-align:center; background:var(--card); border:1px solid var(--border); border-radius:16px; padding:24px; box-shadow:var(--shadow); }
+  .meet-lobby h3 { font-size:18px; margin-bottom:8px; }
+  .meet-lobby input { width:220px; padding:10px 12px; margin:12px 0; }
+  .meet-grid { max-width:1100px; margin:0 auto; display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); }
+  .vtile { position:relative; background:#000; border-radius:12px; overflow:hidden; aspect-ratio:4/3; border:1px solid var(--border); }
+  .vtile video { width:100%; height:100%; object-fit:cover; background:#000; display:block; }
+  .vtile .vlabel { position:absolute; left:8px; bottom:8px; background:rgba(0,0,0,.55); color:#fff; font-size:12px; padding:2px 8px; border-radius:6px; }
+  .meet-controls { max-width:1100px; margin:14px auto 0; display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap; }
+  .meet-controls button { font-size:18px; width:50px; height:50px; border-radius:50%; border:1px solid var(--border); background:var(--card); cursor:pointer; }
+  .meet-controls button#meetLeave { width:auto; border-radius:999px; padding:0 18px; background:#e03131; color:#fff; border:none; font-weight:700; }
+  .meet-controls button.off { background:#e03131; color:#fff; border-color:#e03131; }
+  .meet-count { margin-left:auto; font-size:13px; color:var(--muted); }
   /* AI 토론방 */
   .ai-bar { max-width:1100px; margin:0 auto 12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .ai-bar input#aiTopic { flex:1; min-width:160px; }
@@ -616,6 +629,7 @@
     <button id="tabBtnWorld" onclick="switchTab('world')"><span class="ti">🌐</span><span class="tl">세계정세</span></button>
     <button id="tabBtnChat" onclick="switchTab('chat')"><span class="ti">💬</span><span class="tl">토론방</span></button>
     <button id="tabBtnAi" onclick="switchTab('ai')"><span class="ti">🤖</span><span class="tl">AI토론</span></button>
+    <button id="tabBtnMeet" onclick="switchTab('meet')"><span class="ti">📹</span><span class="tl">화상회의</span></button>
   </div>
 
   <div id="tab-dashboard">
@@ -796,6 +810,27 @@
         ※ 제미나이·ChatGPT·클로드 3명이 토론합니다. (Google Gemini API 1개로 세 페르소나를 구동) · 자동 진행, 질문하면 그 질문을 다룹니다.</p>
     </div>
   </div><!-- /tab-ai -->
+
+  <div id="tab-meet" style="display:none">
+    <div id="meetLobby">
+      <div class="meet-lobby">
+        <h3>📹 화상회의</h3>
+        <p style="font-size:14px;color:var(--muted)">카메라·마이크로 다른 접속자와 실시간 화상 회의를 합니다. (WebRTC P2P)</p>
+        <input id="meetNick" placeholder="닉네임" maxlength="20" />
+        <div><button id="meetJoin">🎥 참가하기</button></div>
+        <p class="warn" style="color:var(--up);font-size:13px;margin-top:10px">참가 시 브라우저가 카메라·마이크 권한을 요청합니다. 같은 페이지를 연 다른 사람과 자동으로 연결됩니다.</p>
+      </div>
+    </div>
+    <div id="meetRoom" style="display:none">
+      <div class="meet-grid" id="meetGrid"></div>
+      <div class="meet-controls">
+        <button id="meetMic" title="마이크">🎤</button>
+        <button id="meetCam" title="카메라">📷</button>
+        <button id="meetLeave">🚪 나가기</button>
+        <span id="meetCount" class="meet-count"></span>
+      </div>
+    </div>
+  </div><!-- /tab-meet -->
 
   <div id="balloonLayer"></div>
   <button id="themeToggle" class="theme-toggle" title="다크/라이트 모드" aria-label="테마">🌙</button>
@@ -2765,8 +2800,97 @@
     else renderAiMsgs();
   }
 
+  /* ===== 화상회의 (WebRTC P2P · MQTT 시그널링) ===== */
+  const RTC_TOPIC = `${TOPIC_BASE}/rtc`;
+  const RTC_ICE = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
+  let vcMqc = null, vcStream = null, vcPeers = {}, vcOn = false, vcMicOn = true, vcCamOn = true, vcWired = false;
+  const meetNick = () => ($("meetNick").value.trim() || "익명").slice(0, 20);
+  function rtcSend(m) { if (vcMqc && vcMqc.connected) vcMqc.publish(RTC_TOPIC, JSON.stringify(m), { qos: 0 }); }
+
+  function vcTile(id, label, stream, isLocal) {
+    let tile = document.getElementById("vtile-" + id);
+    if (!tile) {
+      tile = document.createElement("div"); tile.className = "vtile"; tile.id = "vtile-" + id;
+      tile.innerHTML = `<video autoplay playsinline ${isLocal ? "muted" : ""}></video><span class="vlabel"></span>`;
+      $("meetGrid").appendChild(tile);
+    }
+    tile.querySelector(".vlabel").textContent = label;
+    const v = tile.querySelector("video"); if (v.srcObject !== stream) v.srcObject = stream;
+    vcCount();
+  }
+  function vcRemoveTile(id) { const t = document.getElementById("vtile-" + id); if (t) t.remove(); vcCount(); }
+  function vcCount() { const n = $("meetGrid").querySelectorAll(".vtile").length; $("meetCount").textContent = "참가자 " + n + "명"; }
+
+  function vcMakePeer(id, nick) {
+    if (vcPeers[id]) return vcPeers[id];
+    const pc = new RTCPeerConnection({ iceServers: RTC_ICE });
+    vcStream.getTracks().forEach((tr) => pc.addTrack(tr, vcStream));
+    pc.onicecandidate = (e) => { if (e.candidate) rtcSend({ t: "ice", from: myId, to: id, cand: e.candidate }); };
+    pc.ontrack = (e) => vcTile(id, (vcPeers[id] && vcPeers[id].nick) || "상대", e.streams[0], false);
+    pc.onconnectionstatechange = () => { if (["failed", "closed"].includes(pc.connectionState)) vcRemovePeer(id); };
+    const peer = vcPeers[id] = { pc, nick, pending: [] };
+    return peer;
+  }
+  async function vcOffer(id, nick) {
+    const peer = vcMakePeer(id, nick);
+    const offer = await peer.pc.createOffer(); await peer.pc.setLocalDescription(offer);
+    rtcSend({ t: "offer", from: myId, to: id, nick: meetNick(), sdp: peer.pc.localDescription });
+  }
+  async function vcFlushIce(peer) { for (const c of peer.pending.splice(0)) { try { await peer.pc.addIceCandidate(c); } catch (e) {} } }
+  async function onRtc(m) {
+    if (!m || m.from === myId) return;
+    if (m.to && m.to !== myId) return;
+    try {
+      if (m.t === "hello") { rtcSend({ t: "hi", from: myId, to: m.from, nick: meetNick() }); if (myId > m.from) vcOffer(m.from, m.nick); return; }
+      if (m.t === "hi") { if (myId > m.from && !vcPeers[m.from]) vcOffer(m.from, m.nick); return; }
+      if (m.t === "offer") {
+        const peer = vcMakePeer(m.from, m.nick); peer.nick = m.nick || peer.nick;
+        await peer.pc.setRemoteDescription(m.sdp); await vcFlushIce(peer);
+        const ans = await peer.pc.createAnswer(); await peer.pc.setLocalDescription(ans);
+        rtcSend({ t: "answer", from: myId, to: m.from, sdp: peer.pc.localDescription }); return;
+      }
+      if (m.t === "answer") { const peer = vcPeers[m.from]; if (peer) { await peer.pc.setRemoteDescription(m.sdp); await vcFlushIce(peer); } return; }
+      if (m.t === "ice") { const peer = vcPeers[m.from]; if (peer && m.cand) { if (peer.pc.remoteDescription && peer.pc.remoteDescription.type) { try { await peer.pc.addIceCandidate(m.cand); } catch (e) {} } else peer.pending.push(m.cand); } return; }
+      if (m.t === "leave") { vcRemovePeer(m.from); return; }
+    } catch (e) { console.warn("rtc", e); }
+  }
+  function vcRemovePeer(id) { const p = vcPeers[id]; if (p) { try { p.pc.close(); } catch (e) {} delete vcPeers[id]; } vcRemoveTile(id); }
+
+  async function meetJoin() {
+    if (vcOn) return;
+    try { vcStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true }); }
+    catch (e) { alert("카메라/마이크를 사용할 수 없습니다: " + e.message); return; }
+    vcOn = true; vcMicOn = true; vcCamOn = true;
+    localStorage.setItem("chatNick", meetNick());
+    $("meetLobby").style.display = "none"; $("meetRoom").style.display = "";
+    vcTile(myId, "나 (" + meetNick() + ")", vcStream, true);
+    const ok = await ensureMqttLib(); if (!ok || !window.mqtt) { alert("연결 라이브러리를 불러오지 못했습니다."); meetLeave(); return; }
+    vcMqc = window.mqtt.connect(MQTT_URL, { clientId: "krwrtc-" + myId, reconnectPeriod: 3000, will: { topic: RTC_TOPIC, payload: JSON.stringify({ t: "leave", from: myId }), qos: 0 } });
+    vcMqc.on("connect", () => { vcMqc.subscribe(RTC_TOPIC); rtcSend({ t: "hello", from: myId, nick: meetNick() }); });
+    vcMqc.on("message", (_t, p) => { let m; try { m = JSON.parse(p.toString()); } catch (e) { return; } onRtc(m); });
+  }
+  function meetLeaveQuiet() { try { rtcSend({ t: "leave", from: myId }); } catch (e) {} }
+  function meetLeave() {
+    meetLeaveQuiet();
+    Object.keys(vcPeers).forEach(vcRemovePeer);
+    if (vcStream) { vcStream.getTracks().forEach((t) => t.stop()); vcStream = null; }
+    if (vcMqc) { try { vcMqc.end(true); } catch (e) {} vcMqc = null; }
+    $("meetGrid").innerHTML = ""; vcOn = false;
+    $("meetRoom").style.display = "none"; $("meetLobby").style.display = "";
+  }
+  function initMeet() {
+    if (!$("meetNick").value) $("meetNick").value = localStorage.getItem("chatNick") || "";
+    if (vcWired) return;
+    $("meetJoin").onclick = meetJoin;
+    $("meetMic").onclick = () => { vcMicOn = !vcMicOn; if (vcStream) vcStream.getAudioTracks().forEach((t) => t.enabled = vcMicOn); $("meetMic").classList.toggle("off", !vcMicOn); $("meetMic").textContent = vcMicOn ? "🎤" : "🔇"; };
+    $("meetCam").onclick = () => { vcCamOn = !vcCamOn; if (vcStream) vcStream.getVideoTracks().forEach((t) => t.enabled = vcCamOn); $("meetCam").classList.toggle("off", !vcCamOn); $("meetCam").textContent = vcCamOn ? "📷" : "🚫"; };
+    $("meetLeave").onclick = meetLeave;
+    window.addEventListener("pagehide", () => { if (vcOn) meetLeaveQuiet(); });
+    vcWired = true;
+  }
+
   window.switchTab = function (t) {
-    const map = { dash: "tab-dashboard", ex: "tab-exchange", news: "tab-news", ban: "tab-ban", world: "tab-world", chat: "tab-chat", ai: "tab-ai" };
+    const map = { dash: "tab-dashboard", ex: "tab-exchange", news: "tab-news", ban: "tab-ban", world: "tab-world", chat: "tab-chat", ai: "tab-ai", meet: "tab-meet" };
     Object.entries(map).forEach(([k, id]) => { $(id).style.display = (k === t) ? "" : "none"; });
     $("tabBtnDash").classList.toggle("active", t === "dash");
     $("tabBtnEx").classList.toggle("active", t === "ex");
@@ -2775,6 +2899,7 @@
     $("tabBtnWorld").classList.toggle("active", t === "world");
     $("tabBtnChat").classList.toggle("active", t === "chat");
     $("tabBtnAi").classList.toggle("active", t === "ai");
+    $("tabBtnMeet").classList.toggle("active", t === "meet");
     try {
       if (t === "ex") renderExchange();
       if (t === "news" && !newsLoaded) loadNews();
@@ -2782,6 +2907,7 @@
       if (t === "world") loadWorld();
       if (t === "chat") initChat();
       if (t === "ai") initAi();
+      if (t === "meet") initMeet();
     } catch (err) { console.warn("탭 로드 오류:", err); }
   };
   document.getElementById("worldRefresh").onclick = () => loadWorld(true);

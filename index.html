@@ -404,6 +404,9 @@
   .vtile { position:relative; background:#000; border-radius:12px; overflow:hidden; aspect-ratio:4/3; border:1px solid var(--border); }
   .vtile video { width:100%; height:100%; object-fit:cover; background:#000; display:block; }
   .vtile .vlabel { position:absolute; left:8px; bottom:8px; background:rgba(0,0,0,.55); color:#fff; font-size:12px; padding:2px 8px; border-radius:6px; }
+  .vtile .vmeter { position:absolute; right:8px; bottom:8px; width:8px; height:46%; background:rgba(255,255,255,.22); border-radius:5px; overflow:hidden; }
+  .vtile .vmeter-fill { position:absolute; left:0; right:0; bottom:0; height:0%; background:linear-gradient(to top,#16a34a 0%,#16a34a 55%,#f5c518 78%,#f04452 100%); transition:height .07s linear; }
+  .vtile.speaking { outline:3px solid #16a34a; outline-offset:-3px; }
   .meet-controls { margin:14px auto 0; display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap; }
   .meet-controls button { font-size:18px; width:50px; height:50px; border-radius:50%; border:1px solid var(--border); background:var(--card); cursor:pointer; }
   .meet-controls button#meetLeave { width:auto; border-radius:999px; padding:0 18px; background:#e03131; color:#fff; border:none; font-weight:700; }
@@ -2865,6 +2868,7 @@
   let vcMqc = null, vcStream = null, vcPeers = {}, vcOn = false, vcMicOn = true, vcCamOn = true, vcWired = false;
   let vcStt = null, vcSttWant = false, vcLog = [], vcSumTimer = null, vcTimerInt = null, vcSumMin = 0, vcStartTs = 0, vcSummarizing = false;
   let vcTransOn = false, mcSeq = 0; const transCache = {};
+  let vcAudioCtx = null, vcMeters = {}, vcMeterRAF = 0;
   const meetNick = () => ($("meetNick").value.trim() || "익명").slice(0, 20);
   function rtcSend(m) { if (vcMqc && vcMqc.connected) vcMqc.publish(RTC_TOPIC, JSON.stringify(m), { qos: 0 }); }
 
@@ -2872,14 +2876,54 @@
     let tile = document.getElementById("vtile-" + id);
     if (!tile) {
       tile = document.createElement("div"); tile.className = "vtile"; tile.id = "vtile-" + id;
-      tile.innerHTML = `<video autoplay playsinline ${isLocal ? "muted" : ""}></video><span class="vlabel"></span>`;
+      tile.innerHTML = `<video autoplay playsinline ${isLocal ? "muted" : ""}></video><span class="vlabel"></span>` +
+        `<div class="vmeter" title="음성 레벨"><i class="vmeter-fill"></i></div>`;
       $("meetGrid").appendChild(tile);
     }
     tile.querySelector(".vlabel").textContent = label;
     const v = tile.querySelector("video"); if (v.srcObject !== stream) v.srcObject = stream;
+    vcMeterSetup(id, stream);
     vcCount();
   }
-  function vcRemoveTile(id) { const t = document.getElementById("vtile-" + id); if (t) t.remove(); vcCount(); }
+  function vcRemoveTile(id) { vcMeterTeardown(id); const t = document.getElementById("vtile-" + id); if (t) t.remove(); vcCount(); }
+
+  /* 음성 레벨 게이지 (Web Audio API) */
+  function vcMeterSetup(id, stream) {
+    const at = stream && stream.getAudioTracks ? stream.getAudioTracks() : [];
+    if (!at.length) return;
+    if (vcMeters[id] && vcMeters[id].stream === stream) return;
+    vcMeterTeardown(id);
+    try {
+      if (!vcAudioCtx) vcAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (vcAudioCtx.state === "suspended") vcAudioCtx.resume();
+      const src = vcAudioCtx.createMediaStreamSource(stream);
+      const an = vcAudioCtx.createAnalyser(); an.fftSize = 512; an.smoothingTimeConstant = 0.6;
+      src.connect(an);
+      vcMeters[id] = { an, data: new Uint8Array(an.fftSize), src, stream };
+      if (!vcMeterRAF) vcMeterLoop();
+    } catch (e) {}
+  }
+  function vcMeterTeardown(id) { const m = vcMeters[id]; if (m) { try { m.src.disconnect(); } catch (e) {} delete vcMeters[id]; } }
+  function vcMeterLoop() {
+    vcMeterRAF = requestAnimationFrame(vcMeterLoop);
+    const ids = Object.keys(vcMeters);
+    if (!ids.length) { cancelAnimationFrame(vcMeterRAF); vcMeterRAF = 0; return; }
+    ids.forEach((id) => {
+      const m = vcMeters[id]; const tile = document.getElementById("vtile-" + id); if (!tile) return;
+      const fill = tile.querySelector(".vmeter-fill"); if (!fill) return;
+      m.an.getByteTimeDomainData(m.data);
+      let sum = 0; for (let i = 0; i < m.data.length; i++) { const v = (m.data[i] - 128) / 128; sum += v * v; }
+      const rms = Math.sqrt(sum / m.data.length);
+      const level = Math.min(100, Math.round(rms * 280));
+      fill.style.height = level + "%";
+      tile.classList.toggle("speaking", level > 12);
+    });
+  }
+  function vcMetersStop() {
+    Object.keys(vcMeters).forEach(vcMeterTeardown);
+    if (vcMeterRAF) { cancelAnimationFrame(vcMeterRAF); vcMeterRAF = 0; }
+    if (vcAudioCtx) { try { vcAudioCtx.close(); } catch (e) {} vcAudioCtx = null; }
+  }
   function vcCount() { const n = $("meetGrid").querySelectorAll(".vtile").length; $("meetCount").textContent = "참가자 " + n + "명"; }
 
   function vcMakePeer(id, nick) {
@@ -3122,6 +3166,7 @@
   function meetLeave() {
     meetLeaveQuiet();
     meetSttStop();
+    vcMetersStop();
     if (vcTimerInt) { clearInterval(vcTimerInt); vcTimerInt = null; }
     if (vcSumTimer) { clearTimeout(vcSumTimer); vcSumTimer = null; }
     $("meetTimer").textContent = "";

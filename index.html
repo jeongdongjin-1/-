@@ -420,6 +420,8 @@
   .mc-msg.mine .mc-bubble { background:var(--accent); color:var(--on-accent); }
   .mc-bubble { display:inline-block; background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:5px 9px; margin-top:2px; max-width:90%; }
   .mc-sys { text-align:center; font-size:12px; color:var(--muted); }
+  .mc-trans { font-size:11.5px; color:#1b64da; margin-top:3px; line-height:1.4; }
+  .mc-msg.mine .mc-trans { color:#0a7a3b; }
   .mc-msg.voice .mc-bubble { font-style:italic; opacity:.92; }
   .mc-msg.voice .mc-nick::after { content:" 🎙"; font-style:normal; }
   .meet-controls button.meet-cc { font-size:13px; font-weight:800; }
@@ -869,6 +871,7 @@
             <button id="meetMic" title="마이크">🎤</button>
             <button id="meetCam" title="카메라">📷</button>
             <button id="meetStt" title="음성 자막 (말하면 채팅에 자동 입력)" class="meet-cc off">CC</button>
+            <button id="meetTrans" title="영어 자동 번역 (채팅·자막을 영어로)" class="meet-cc off">EN</button>
             <button id="meetSummary" title="지금 요약하기">📝</button>
             <button id="meetChatToggle" title="채팅" class="meet-chat-toggle">💬</button>
             <button id="meetLeave">🚪 나가기</button>
@@ -2861,6 +2864,7 @@
   const RTC_ICE = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
   let vcMqc = null, vcStream = null, vcPeers = {}, vcOn = false, vcMicOn = true, vcCamOn = true, vcWired = false;
   let vcStt = null, vcSttWant = false, vcLog = [], vcSumTimer = null, vcTimerInt = null, vcSumMin = 0, vcStartTs = 0, vcSummarizing = false;
+  let vcTransOn = false, mcSeq = 0; const transCache = {};
   const meetNick = () => ($("meetNick").value.trim() || "익명").slice(0, 20);
   function rtcSend(m) { if (vcMqc && vcMqc.connected) vcMqc.publish(RTC_TOPIC, JSON.stringify(m), { qos: 0 }); }
 
@@ -2923,8 +2927,56 @@
   }
   function meetChatAdd(nick, text, mine, voice) {
     if (!text) return;
-    meetChatAppend(`<div class="mc-msg ${mine ? "mine" : ""} ${voice ? "voice" : ""}"><span class="mc-nick">${esc(nick)}</span><div class="mc-bubble">${esc(text)}</div></div>`);
+    const id = "mcm" + (mcSeq++);
+    meetChatAppend(`<div class="mc-msg ${mine ? "mine" : ""} ${voice ? "voice" : ""}" id="${id}"><span class="mc-nick">${esc(nick)}</span><div class="mc-bubble">${esc(text)}</div><div class="mc-trans" style="display:none"></div></div>`);
     vcLog.push({ nick, text, voice: !!voice });
+    if (vcTransOn) meetShowTrans(id, text);
+  }
+
+  /* 영어 자동 번역 (무료 MyMemory, 실패 시 Gemini) */
+  const hasHangul = (s) => /[ㄱ-힝]/.test(s);
+  async function translateEN(text) {
+    if (transCache[text]) return transCache[text];
+    try {
+      const r = await fetchTimeout("https://api.mymemory.translated.net/get?q=" + encodeURIComponent(text) + "&langpair=ko|en", {}, 8000);
+      const j = await r.json();
+      let t = j && j.responseData && j.responseData.translatedText;
+      if (t && !/MYMEMORY WARNING|INVALID/i.test(t)) { t = t.trim(); transCache[text] = t; return t; }
+    } catch (e) {}
+    try {
+      if (geminiKeyList().length) {
+        const t = (await callGemini("Translate the user's text into natural English. Output ONLY the English translation, nothing else.", text)).trim();
+        if (t) { transCache[text] = t; return t; }
+      }
+    } catch (e) {}
+    return null;
+  }
+  async function meetShowTrans(id, text) {
+    if (!hasHangul(text)) return; // 이미 영어면 번역 불필요
+    let el = document.getElementById(id); if (!el) return;
+    let box = el.querySelector(".mc-trans"); if (!box) return;
+    box.style.display = ""; box.textContent = "🌐 …";
+    const t = await translateEN(text);
+    el = document.getElementById(id); if (!el) return;
+    box = el.querySelector(".mc-trans"); if (!box) return;
+    if (t) box.textContent = "🌐 " + t;
+    else { box.textContent = ""; box.style.display = "none"; }
+  }
+  function meetTransToggle() {
+    vcTransOn = !vcTransOn;
+    const b = $("meetTrans");
+    b.classList.toggle("live", vcTransOn); b.classList.toggle("off", !vcTransOn);
+    b.title = vcTransOn ? "영어 자동 번역 끄기" : "영어 자동 번역 켜기 (채팅·자막을 영어로)";
+    if (vcTransOn) {
+      meetChatSys("🌐 영어 자동 번역을 켰습니다. (English auto-translation ON)");
+      document.querySelectorAll("#meetChatMsgs .mc-msg").forEach((el) => {
+        const bub = el.querySelector(".mc-bubble"), tr = el.querySelector(".mc-trans");
+        if (bub && tr && !tr.textContent) meetShowTrans(el.id, bub.textContent);
+      });
+    } else {
+      meetChatSys("영어 자동 번역을 껐습니다.");
+      document.querySelectorAll("#meetChatMsgs .mc-trans").forEach((tr) => { tr.style.display = "none"; });
+    }
   }
   function meetChatSys(text) { meetChatAppend(`<div class="mc-sys">${esc(text)}</div>`); }
   function meetChatSend() {
@@ -3052,6 +3104,7 @@
       vcSumTimer = setTimeout(() => meetSummarize(true), vcSumMin * 60000);
     }
     sttUpdateBtn();
+    $("meetTrans").classList.toggle("live", vcTransOn); $("meetTrans").classList.toggle("off", !vcTransOn);
     const ok = await ensureMqttLib(); if (!ok || !window.mqtt) { alert("연결 라이브러리를 불러오지 못했습니다."); meetLeave(); return; }
     vcMqc = window.mqtt.connect(MQTT_URL, { clientId: "krwrtc-" + myId, reconnectPeriod: 3000, will: { topic: RTC_TOPIC, payload: JSON.stringify({ t: "leave", from: myId }), qos: 0 } });
     vcMqc.on("connect", () => { vcMqc.subscribe(RTC_TOPIC); rtcSend({ t: "hello", from: myId, nick: meetNick() }); });
@@ -3084,6 +3137,7 @@
     };
     $("meetCam").onclick = () => { vcCamOn = !vcCamOn; if (vcStream) vcStream.getVideoTracks().forEach((t) => t.enabled = vcCamOn); $("meetCam").classList.toggle("off", !vcCamOn); $("meetCam").textContent = vcCamOn ? "📷" : "🚫"; };
     $("meetStt").onclick = meetSttToggle;
+    $("meetTrans").onclick = meetTransToggle;
     $("meetSummary").onclick = () => meetSummarize(false);
     $("meetLeave").onclick = meetLeave;
     $("meetChatForm").addEventListener("submit", (e) => { e.preventDefault(); meetChatSend(); });

@@ -398,15 +398,38 @@
   .meet-lobby { max-width:560px; margin:0 auto; text-align:center; background:var(--card); border:1px solid var(--border); border-radius:16px; padding:24px; box-shadow:var(--shadow); }
   .meet-lobby h3 { font-size:18px; margin-bottom:8px; }
   .meet-lobby input { width:220px; padding:10px 12px; margin:12px 0; }
-  .meet-grid { max-width:1100px; margin:0 auto; display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); }
+  .meet-layout { max-width:1180px; margin:0 auto; display:flex; gap:14px; align-items:flex-start; }
+  .meet-main { flex:1; min-width:0; }
+  .meet-grid { display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); }
   .vtile { position:relative; background:#000; border-radius:12px; overflow:hidden; aspect-ratio:4/3; border:1px solid var(--border); }
   .vtile video { width:100%; height:100%; object-fit:cover; background:#000; display:block; }
   .vtile .vlabel { position:absolute; left:8px; bottom:8px; background:rgba(0,0,0,.55); color:#fff; font-size:12px; padding:2px 8px; border-radius:6px; }
-  .meet-controls { max-width:1100px; margin:14px auto 0; display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap; }
+  .meet-controls { margin:14px auto 0; display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap; }
   .meet-controls button { font-size:18px; width:50px; height:50px; border-radius:50%; border:1px solid var(--border); background:var(--card); cursor:pointer; }
   .meet-controls button#meetLeave { width:auto; border-radius:999px; padding:0 18px; background:#e03131; color:#fff; border:none; font-weight:700; }
   .meet-controls button.off { background:#e03131; color:#fff; border-color:#e03131; }
   .meet-count { margin-left:auto; font-size:13px; color:var(--muted); }
+  .meet-chat { width:300px; flex:none; display:flex; flex-direction:column; height:64vh; min-height:360px;
+    background:var(--card); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); overflow:hidden; }
+  .meet-chat-head { padding:10px 12px; font-weight:800; font-size:14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+  .meet-chat-head button { border:none; background:none; cursor:pointer; font-size:15px; color:var(--muted); }
+  .meet-chat-msgs { flex:1; overflow-y:auto; padding:10px 12px; display:flex; flex-direction:column; gap:7px; }
+  .mc-msg { font-size:13px; line-height:1.45; word-break:break-word; }
+  .mc-msg .mc-nick { font-weight:700; }
+  .mc-msg.mine { text-align:right; }
+  .mc-msg.mine .mc-bubble { background:var(--accent); color:var(--on-accent); }
+  .mc-bubble { display:inline-block; background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:5px 9px; margin-top:2px; max-width:90%; }
+  .mc-sys { text-align:center; font-size:12px; color:var(--muted); }
+  .meet-chat-form { display:flex; gap:6px; padding:10px; border-top:1px solid var(--border); }
+  .meet-chat-form input { flex:1; min-width:0; padding:8px 10px; }
+  .meet-chat-form button { flex:none; padding:0 14px; border:none; border-radius:8px; background:var(--accent); color:var(--on-accent); font-weight:700; cursor:pointer; }
+  .meet-chat-toggle { display:none; }
+  @media (max-width:860px) {
+    .meet-layout { flex-direction:column; }
+    .meet-chat { width:100%; height:46vh; order:2; }
+    .meet-chat.hidden { display:none; }
+    .meet-chat-toggle { display:inline-block !important; }
+  }
   /* AI 토론방 */
   .ai-bar { max-width:1100px; margin:0 auto 12px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
   .ai-bar input#aiTopic { flex:1; min-width:160px; }
@@ -822,12 +845,25 @@
       </div>
     </div>
     <div id="meetRoom" style="display:none">
-      <div class="meet-grid" id="meetGrid"></div>
-      <div class="meet-controls">
-        <button id="meetMic" title="마이크">🎤</button>
-        <button id="meetCam" title="카메라">📷</button>
-        <button id="meetLeave">🚪 나가기</button>
-        <span id="meetCount" class="meet-count"></span>
+      <div class="meet-layout">
+        <div class="meet-main">
+          <div class="meet-grid" id="meetGrid"></div>
+          <div class="meet-controls">
+            <button id="meetMic" title="마이크">🎤</button>
+            <button id="meetCam" title="카메라">📷</button>
+            <button id="meetChatToggle" title="채팅" class="meet-chat-toggle">💬</button>
+            <button id="meetLeave">🚪 나가기</button>
+            <span id="meetCount" class="meet-count"></span>
+          </div>
+        </div>
+        <div class="meet-chat" id="meetChat">
+          <div class="meet-chat-head">💬 채팅 <button id="meetChatClose" title="닫기">✕</button></div>
+          <div class="meet-chat-msgs" id="meetChatMsgs"></div>
+          <form class="meet-chat-form" id="meetChatForm">
+            <input id="meetChatInput" placeholder="메시지 입력…" maxlength="300" autocomplete="off" />
+            <button type="submit">전송</button>
+          </form>
+        </div>
       </div>
     </div>
   </div><!-- /tab-meet -->
@@ -2841,7 +2877,8 @@
     if (!m || m.from === myId) return;
     if (m.to && m.to !== myId) return;
     try {
-      if (m.t === "hello") { rtcSend({ t: "hi", from: myId, to: m.from, nick: meetNick() }); if (myId > m.from) vcOffer(m.from, m.nick); return; }
+      if (m.t === "chat") { meetChatAdd(m.nick || "익명", m.text || "", false); return; }
+      if (m.t === "hello") { rtcSend({ t: "hi", from: myId, to: m.from, nick: meetNick() }); meetChatSys((m.nick || "누군가") + "님이 입장했습니다."); if (myId > m.from) vcOffer(m.from, m.nick); return; }
       if (m.t === "hi") { if (myId > m.from && !vcPeers[m.from]) vcOffer(m.from, m.nick); return; }
       if (m.t === "offer") {
         const peer = vcMakePeer(m.from, m.nick); peer.nick = m.nick || peer.nick;
@@ -2851,10 +2888,30 @@
       }
       if (m.t === "answer") { const peer = vcPeers[m.from]; if (peer) { await peer.pc.setRemoteDescription(m.sdp); await vcFlushIce(peer); } return; }
       if (m.t === "ice") { const peer = vcPeers[m.from]; if (peer && m.cand) { if (peer.pc.remoteDescription && peer.pc.remoteDescription.type) { try { await peer.pc.addIceCandidate(m.cand); } catch (e) {} } else peer.pending.push(m.cand); } return; }
-      if (m.t === "leave") { vcRemovePeer(m.from); return; }
+      if (m.t === "leave") { const p = vcPeers[m.from]; if (p) meetChatSys((p.nick || "누군가") + "님이 퇴장했습니다."); vcRemovePeer(m.from); return; }
     } catch (e) { console.warn("rtc", e); }
   }
   function vcRemovePeer(id) { const p = vcPeers[id]; if (p) { try { p.pc.close(); } catch (e) {} delete vcPeers[id]; } vcRemoveTile(id); }
+
+  /* 화상회의 채팅 */
+  function meetChatAppend(html) {
+    const box = $("meetChatMsgs"); if (!box) return;
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+    box.insertAdjacentHTML("beforeend", html);
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  }
+  function meetChatAdd(nick, text, mine) {
+    if (!text) return;
+    meetChatAppend(`<div class="mc-msg ${mine ? "mine" : ""}"><span class="mc-nick">${esc(nick)}</span><div class="mc-bubble">${esc(text)}</div></div>`);
+  }
+  function meetChatSys(text) { meetChatAppend(`<div class="mc-sys">${esc(text)}</div>`); }
+  function meetChatSend() {
+    const inp = $("meetChatInput"); const text = inp.value.trim();
+    if (!text || !vcOn) return;
+    meetChatAdd(meetNick(), text, true);
+    rtcSend({ t: "chat", from: myId, nick: meetNick(), text });
+    inp.value = ""; inp.focus();
+  }
 
   async function meetJoin() {
     if (vcOn) return;
@@ -2863,6 +2920,7 @@
     vcOn = true; vcMicOn = true; vcCamOn = true;
     localStorage.setItem("chatNick", meetNick());
     $("meetLobby").style.display = "none"; $("meetRoom").style.display = "";
+    $("meetChatMsgs").innerHTML = ""; meetChatSys("회의에 입장했습니다. 대화를 시작해 보세요 💬");
     vcTile(myId, "나 (" + meetNick() + ")", vcStream, true);
     const ok = await ensureMqttLib(); if (!ok || !window.mqtt) { alert("연결 라이브러리를 불러오지 못했습니다."); meetLeave(); return; }
     vcMqc = window.mqtt.connect(MQTT_URL, { clientId: "krwrtc-" + myId, reconnectPeriod: 3000, will: { topic: RTC_TOPIC, payload: JSON.stringify({ t: "leave", from: myId }), qos: 0 } });
@@ -2885,6 +2943,9 @@
     $("meetMic").onclick = () => { vcMicOn = !vcMicOn; if (vcStream) vcStream.getAudioTracks().forEach((t) => t.enabled = vcMicOn); $("meetMic").classList.toggle("off", !vcMicOn); $("meetMic").textContent = vcMicOn ? "🎤" : "🔇"; };
     $("meetCam").onclick = () => { vcCamOn = !vcCamOn; if (vcStream) vcStream.getVideoTracks().forEach((t) => t.enabled = vcCamOn); $("meetCam").classList.toggle("off", !vcCamOn); $("meetCam").textContent = vcCamOn ? "📷" : "🚫"; };
     $("meetLeave").onclick = meetLeave;
+    $("meetChatForm").addEventListener("submit", (e) => { e.preventDefault(); meetChatSend(); });
+    $("meetChatToggle").onclick = () => $("meetChat").classList.toggle("hidden");
+    $("meetChatClose").onclick = () => $("meetChat").classList.add("hidden");
     window.addEventListener("pagehide", () => { if (vcOn) meetLeaveQuiet(); });
     vcWired = true;
   }

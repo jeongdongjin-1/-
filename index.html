@@ -400,7 +400,17 @@
   .meet-lobby input { width:220px; padding:10px 12px; margin:12px 0; }
   .meet-layout { max-width:1180px; margin:0 auto; display:flex; gap:14px; align-items:flex-start; }
   .meet-main { flex:1; min-width:0; }
+  .meet-splitbar { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .meet-splitbar .msb-label { font-size:12px; color:var(--muted); margin-right:2px; }
+  .meet-splitbar .msb { font-size:12.5px; font-weight:700; padding:5px 11px; border-radius:999px; border:1px solid var(--border); background:var(--card); color:var(--text); cursor:pointer; }
+  .meet-splitbar .msb.active { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
   .meet-grid { display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); }
+  .meet-grid.split { height:68vh; grid-auto-rows:1fr; }
+  .meet-grid.split .vtile { aspect-ratio:auto; height:100%; min-height:0; }
+  .meet-grid.split-2 { grid-template-columns:repeat(2,1fr); }
+  .meet-grid.split-4 { grid-template-columns:repeat(2,1fr); grid-template-rows:repeat(2,1fr); }
+  .meet-grid.split-8 { grid-template-columns:repeat(4,1fr); grid-template-rows:repeat(2,1fr); }
+  .meet-grid.split-16 { grid-template-columns:repeat(4,1fr); grid-template-rows:repeat(4,1fr); }
   .vtile { position:relative; background:#000; border-radius:12px; overflow:hidden; aspect-ratio:4/3; border:1px solid var(--border); }
   .vtile video { width:100%; height:100%; object-fit:cover; background:#000; display:block; }
   .vtile .vlabel { position:absolute; left:8px; bottom:8px; background:rgba(0,0,0,.55); color:#fff; font-size:12px; padding:2px 8px; border-radius:6px; }
@@ -414,8 +424,14 @@
   .meet-count { margin-left:auto; font-size:13px; color:var(--muted); }
   .meet-chat { width:300px; flex:none; display:flex; flex-direction:column; height:64vh; min-height:360px;
     background:var(--card); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); overflow:hidden; }
-  .meet-chat-head { padding:10px 12px; font-weight:800; font-size:14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
-  .meet-chat-head button { border:none; background:none; cursor:pointer; font-size:15px; color:var(--muted); }
+  .meet-chat-head { padding:8px 10px; font-weight:800; font-size:14px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:6px; }
+  .meet-chat-head > button { border:none; background:none; cursor:pointer; font-size:15px; color:var(--muted); }
+  .meet-side-tabs { display:flex; gap:4px; }
+  .meet-side-tabs button { border:1px solid var(--border); background:var(--bg); color:var(--text); cursor:pointer; font-size:12.5px; font-weight:700; padding:5px 10px; border-radius:999px; }
+  .meet-side-tabs button.active { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
+  .meet-side-pane { flex:1; display:flex; flex-direction:column; min-height:0; }
+  .meet-doc-info { padding:8px 10px; font-size:11.5px; color:var(--muted); border-bottom:1px solid var(--border); }
+  #meetDoc { flex:1; width:100%; border:none; outline:none; resize:none; padding:10px 12px; font-size:13px; line-height:1.6; background:var(--card); color:var(--text); font-family:inherit; }
   .meet-chat-msgs { flex:1; overflow-y:auto; padding:10px 12px; display:flex; flex-direction:column; gap:7px; }
   .mc-msg { font-size:13px; line-height:1.45; word-break:break-word; }
   .mc-msg .mc-nick { font-weight:700; }
@@ -869,6 +885,14 @@
     <div id="meetRoom" style="display:none">
       <div class="meet-layout">
         <div class="meet-main">
+          <div class="meet-splitbar">
+            <span class="msb-label">화면 분할</span>
+            <button class="msb active" data-split="0">자동</button>
+            <button class="msb" data-split="2">2분할</button>
+            <button class="msb" data-split="4">4분할</button>
+            <button class="msb" data-split="8">8분할</button>
+            <button class="msb" data-split="16">16분할</button>
+          </div>
           <div class="meet-grid" id="meetGrid"></div>
           <div class="meet-controls">
             <button id="meetMic" title="마이크">🎤</button>
@@ -883,12 +907,24 @@
           </div>
         </div>
         <div class="meet-chat" id="meetChat">
-          <div class="meet-chat-head">💬 채팅 <button id="meetChatClose" title="닫기">✕</button></div>
-          <div class="meet-chat-msgs" id="meetChatMsgs"></div>
-          <form class="meet-chat-form" id="meetChatForm">
-            <input id="meetChatInput" placeholder="메시지 입력…" maxlength="300" autocomplete="off" />
-            <button type="submit">전송</button>
-          </form>
+          <div class="meet-chat-head">
+            <div class="meet-side-tabs">
+              <button id="meetTabChat" class="active">💬 채팅</button>
+              <button id="meetTabDoc">📄 문서</button>
+            </div>
+            <button id="meetChatClose" title="닫기">✕</button>
+          </div>
+          <div id="meetChatPane" class="meet-side-pane">
+            <div class="meet-chat-msgs" id="meetChatMsgs"></div>
+            <form class="meet-chat-form" id="meetChatForm">
+              <input id="meetChatInput" placeholder="메시지 입력…" maxlength="300" autocomplete="off" />
+              <button type="submit">전송</button>
+            </form>
+          </div>
+          <div id="meetDocPane" class="meet-side-pane" style="display:none">
+            <div class="meet-doc-info">📄 함께 편집하는 회의 문서 — 입력하면 참가자 모두에게 실시간 공유됩니다.</div>
+            <textarea id="meetDoc" placeholder="여기에 회의 안건·메모·결정사항을 적으세요…"></textarea>
+          </div>
         </div>
       </div>
     </div>
@@ -2867,8 +2903,9 @@
   const RTC_ICE = [{ urls: "stun:stun.l.google.com:19302" }, { urls: "stun:stun1.l.google.com:19302" }];
   let vcMqc = null, vcStream = null, vcPeers = {}, vcOn = false, vcMicOn = true, vcCamOn = true, vcWired = false;
   let vcStt = null, vcSttWant = false, vcLog = [], vcSumTimer = null, vcTimerInt = null, vcSumMin = 0, vcStartTs = 0, vcSummarizing = false;
-  let vcTransOn = false, mcSeq = 0; const transCache = {};
+  let vcTransOn = true, mcSeq = 0; const transCache = {}; // 화상회의 자동 번역 기본 ON
   let vcAudioCtx = null, vcMeters = {}, vcMeterRAF = 0;
+  let vcDocLast = 0, vcDocTimer = null;
   const meetNick = () => ($("meetNick").value.trim() || "익명").slice(0, 20);
   function rtcSend(m) { if (vcMqc && vcMqc.connected) vcMqc.publish(RTC_TOPIC, JSON.stringify(m), { qos: 0 }); }
 
@@ -2947,7 +2984,13 @@
     if (m.to && m.to !== myId) return;
     try {
       if (m.t === "chat") { meetChatAdd(m.nick || "익명", m.text || "", false, !!m.voice); return; }
-      if (m.t === "hello") { rtcSend({ t: "hi", from: myId, to: m.from, nick: meetNick() }); meetChatSys((m.nick || "누군가") + "님이 입장했습니다."); if (myId > m.from) vcOffer(m.from, m.nick); return; }
+      if (m.t === "doc") { const ta = $("meetDoc"); if (ta && document.activeElement !== ta && (m.ts || 0) >= vcDocLast) { ta.value = m.text || ""; vcDocLast = m.ts || 0; } return; }
+      if (m.t === "hello") {
+        rtcSend({ t: "hi", from: myId, to: m.from, nick: meetNick() });
+        meetChatSys((m.nick || "누군가") + "님이 입장했습니다.");
+        const dv = $("meetDoc"); if (dv && dv.value) rtcSend({ t: "doc", from: myId, to: m.from, text: dv.value, ts: vcDocLast || 1 }); // 새 참가자에게 현재 문서 동기화
+        if (myId > m.from) vcOffer(m.from, m.nick); return;
+      }
       if (m.t === "hi") { if (myId > m.from && !vcPeers[m.from]) vcOffer(m.from, m.nick); return; }
       if (m.t === "offer") {
         const peer = vcMakePeer(m.from, m.nick); peer.nick = m.nick || peer.nick;
@@ -3157,6 +3200,7 @@
     }
     sttUpdateBtn();
     $("meetTrans").classList.toggle("live", vcTransOn); $("meetTrans").classList.toggle("off", !vcTransOn);
+    meetSetLayout(0); meetSideTab("chat");
     const ok = await ensureMqttLib(); if (!ok || !window.mqtt) { alert("연결 라이브러리를 불러오지 못했습니다."); meetLeave(); return; }
     vcMqc = window.mqtt.connect(MQTT_URL, { clientId: "krwrtc-" + myId, reconnectPeriod: 3000, will: { topic: RTC_TOPIC, payload: JSON.stringify({ t: "leave", from: myId }), qos: 0 } });
     vcMqc.on("connect", () => { vcMqc.subscribe(RTC_TOPIC); rtcSend({ t: "hello", from: myId, nick: meetNick() }); });
@@ -3176,6 +3220,30 @@
     $("meetGrid").innerHTML = ""; vcOn = false; vcSumMin = 0;
     $("meetRoom").style.display = "none"; $("meetLobby").style.display = "";
   }
+  /* 화면 분할 레이아웃 (2/4/8/16) */
+  function meetSetLayout(n) {
+    const g = $("meetGrid");
+    g.classList.remove("split", "split-2", "split-4", "split-8", "split-16");
+    if (n && n >= 2) g.classList.add("split", "split-" + n);
+    document.querySelectorAll(".meet-splitbar .msb").forEach((b) => b.classList.toggle("active", parseInt(b.dataset.split, 10) === (n || 0)));
+  }
+
+  /* 공유 문서 */
+  function meetDocChanged() {
+    if (vcDocTimer) clearTimeout(vcDocTimer);
+    vcDocTimer = setTimeout(() => {
+      vcDocLast = Date.now();
+      rtcSend({ t: "doc", from: myId, text: $("meetDoc").value, ts: vcDocLast });
+    }, 250);
+  }
+  function meetSideTab(which) {
+    const chat = which === "chat";
+    $("meetChatPane").style.display = chat ? "" : "none";
+    $("meetDocPane").style.display = chat ? "none" : "";
+    $("meetTabChat").classList.toggle("active", chat);
+    $("meetTabDoc").classList.toggle("active", !chat);
+  }
+
   function initMeet() {
     if (!$("meetNick").value) $("meetNick").value = localStorage.getItem("chatNick") || "";
     if (vcWired) return;
@@ -3196,6 +3264,10 @@
     $("meetChatForm").addEventListener("submit", (e) => { e.preventDefault(); meetChatSend(); });
     $("meetChatToggle").onclick = () => $("meetChat").classList.toggle("hidden");
     $("meetChatClose").onclick = () => $("meetChat").classList.add("hidden");
+    document.querySelectorAll(".meet-splitbar .msb").forEach((b) => { b.onclick = () => meetSetLayout(parseInt(b.dataset.split, 10) || 0); });
+    $("meetTabChat").onclick = () => meetSideTab("chat");
+    $("meetTabDoc").onclick = () => meetSideTab("doc");
+    $("meetDoc").addEventListener("input", meetDocChanged);
     window.addEventListener("pagehide", () => { if (vcOn) meetLeaveQuiet(); });
     vcWired = true;
   }

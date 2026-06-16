@@ -424,6 +424,12 @@
   .vtile .vmeter { position:absolute; right:8px; bottom:8px; width:8px; height:46%; background:rgba(255,255,255,.22); border-radius:5px; overflow:hidden; }
   .vtile .vmeter-fill { position:absolute; left:0; right:0; bottom:0; height:0%; background:linear-gradient(to top,#16a34a 0%,#16a34a 55%,#f5c518 78%,#f04452 100%); transition:height .07s linear; }
   .vtile.speaking { outline:3px solid #16a34a; outline-offset:-3px; }
+  .vtile { cursor:grab; }
+  .vtile.dragging { opacity:.5; }
+  .vtile.dragover { outline:3px dashed var(--accent); outline-offset:-3px; }
+  .vtile .vkick { position:absolute; top:6px; right:6px; border:none; background:rgba(224,49,49,.9); color:#fff; padding:3px 8px; border-radius:999px; cursor:pointer; font-size:11px; font-weight:700; opacity:0; transition:opacity .15s; }
+  .vtile:hover .vkick { opacity:1; }
+  .vtile .vtag { position:absolute; top:6px; right:6px; background:rgba(0,0,0,.55); color:#fff; font-size:11px; padding:2px 8px; border-radius:999px; }
   .meet-controls { margin:14px auto 0; display:flex; gap:10px; align-items:center; justify-content:center; flex-wrap:wrap; }
   .meet-controls button { font-size:18px; width:50px; height:50px; border-radius:50%; border:1px solid var(--border); background:var(--card); cursor:pointer; }
   .meet-controls button#meetLeave { width:auto; border-radius:999px; padding:0 18px; background:#e03131; color:#fff; border:none; font-weight:700; }
@@ -2929,9 +2935,10 @@
   function vcTile(id, label, stream, isLocal) {
     let tile = document.getElementById("vtile-" + id);
     if (!tile) {
-      tile = document.createElement("div"); tile.className = "vtile"; tile.id = "vtile-" + id;
+      tile = document.createElement("div"); tile.className = "vtile"; tile.id = "vtile-" + id; tile.draggable = true;
       tile.innerHTML = `<video autoplay playsinline ${isLocal ? "muted" : ""}></video><span class="vlabel"></span>` +
-        `<div class="vmeter" title="음성 레벨"><i class="vmeter-fill"></i></div>`;
+        `<div class="vmeter" title="음성 레벨"><i class="vmeter-fill"></i></div>` +
+        (isLocal ? `<span class="vtag">나</span>` : `<button class="vkick" data-id="${esc(id)}" draggable="false" title="이 참가자 강퇴">⛔ 강퇴</button>`);
       $("meetGrid").appendChild(tile);
     }
     tile.querySelector(".vlabel").textContent = label;
@@ -2940,6 +2947,32 @@
     vcCount();
   }
   function vcRemoveTile(id) { vcMeterTeardown(id); const t = document.getElementById("vtile-" + id); if (t) t.remove(); vcCount(); }
+
+  /* 강퇴 */
+  function meetKick(id) {
+    const p = vcPeers[id]; const nick = (p && p.nick) || "참가자";
+    if (!confirm(nick + "님을 회의에서 내보낼까요?")) return;
+    rtcSend({ t: "kick", from: myId, target: id });
+    meetChatSys("⛔ " + nick + "님을 강퇴했습니다.");
+    vcRemovePeer(id);
+  }
+  /* 타일 위치 변경(드래그) + 강퇴 버튼: meetGrid 이벤트 위임 (1회 등록) */
+  let vcDragId = null;
+  function meetGridWire() {
+    const g = $("meetGrid"); if (!g || g.dataset.wired) return; g.dataset.wired = "1";
+    g.addEventListener("click", (e) => { const k = e.target.closest(".vkick"); if (k) { e.preventDefault(); meetKick(k.dataset.id); } });
+    g.addEventListener("dragstart", (e) => { const t = e.target.closest(".vtile"); if (!t) return; vcDragId = t.id; t.classList.add("dragging"); if (e.dataTransfer) e.dataTransfer.effectAllowed = "move"; });
+    g.addEventListener("dragend", (e) => { const t = e.target.closest(".vtile"); if (t) t.classList.remove("dragging"); g.querySelectorAll(".dragover").forEach((x) => x.classList.remove("dragover")); });
+    g.addEventListener("dragover", (e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; const t = e.target.closest(".vtile"); g.querySelectorAll(".dragover").forEach((x) => x.classList.remove("dragover")); if (t && t.id !== vcDragId) t.classList.add("dragover"); });
+    g.addEventListener("drop", (e) => {
+      e.preventDefault();
+      const tgt = e.target.closest(".vtile"); const src = vcDragId && document.getElementById(vcDragId);
+      g.querySelectorAll(".dragover").forEach((x) => x.classList.remove("dragover"));
+      if (!tgt || !src || tgt === src) return;
+      const r = tgt.getBoundingClientRect(); const after = e.clientX > r.left + r.width / 2;
+      g.insertBefore(src, after ? tgt.nextSibling : tgt);
+    });
+  }
 
   /* 음성 레벨 게이지 (Web Audio API) */
   function vcMeterSetup(id, stream) {
@@ -3020,6 +3053,11 @@
       }
       if (m.t === "answer") { const peer = vcPeers[m.from]; if (peer) { await peer.pc.setRemoteDescription(m.sdp); await vcFlushIce(peer); } return; }
       if (m.t === "ice") { const peer = vcPeers[m.from]; if (peer && m.cand) { if (peer.pc.remoteDescription && peer.pc.remoteDescription.type) { try { await peer.pc.addIceCandidate(m.cand); } catch (e) {} } else peer.pending.push(m.cand); } return; }
+      if (m.t === "kick") {
+        if (m.target === myId) { alert("회의에서 강퇴되었습니다."); meetLeave(); return; }
+        const p = vcPeers[m.target]; if (p) meetChatSys("⛔ " + (p.nick || "참가자") + "님이 강퇴되었습니다.");
+        vcRemovePeer(m.target); return;
+      }
       if (m.t === "leave") { const p = vcPeers[m.from]; if (p) meetChatSys((p.nick || "누군가") + "님이 퇴장했습니다."); vcRemovePeer(m.from); return; }
     } catch (e) { console.warn("rtc", e); }
   }
@@ -3265,6 +3303,7 @@
     $("meetLobby").style.display = "none"; $("meetRoom").style.display = "";
     $("meetChatMsgs").innerHTML = ""; vcLog = [];
     meetChatSys("회의에 입장했습니다. 대화를 시작해 보세요 💬");
+    meetChatSys("🖱 참가자 화면을 드래그하면 위치를 바꿀 수 있고, 마우스를 올리면 ⛔강퇴 버튼이 나타납니다.");
     vcTile(myId, "나 (" + meetNick() + ")", vcStream, true);
     // 자동 요약 타이머
     vcSumMin = parseInt($("meetDur").value, 10) || 0;
@@ -3362,6 +3401,7 @@
     $("meetChatToggle").onclick = () => $("meetChat").classList.toggle("hidden");
     $("meetChatClose").onclick = () => $("meetChat").classList.add("hidden");
     meetEmojiInit();
+    meetGridWire();
     $("meetEmojiBtn").onclick = meetEmojiToggle;
     $("meetFxBtn").onclick = meetSendFx;
     document.addEventListener("click", (e) => { // 팔레트 바깥 클릭 시 닫기

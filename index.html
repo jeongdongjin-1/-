@@ -318,7 +318,11 @@
   .attend-today b { color:var(--accent); }
   .my-badge { font-size:12px; font-weight:700; background:#fff6e8; color:#9a6700; border:1px solid #f3d18a; border-radius:999px; padding:3px 9px; }
   .attend-acts { display:flex; gap:6px; }
-  .att-link { background:var(--bg)!important; color:var(--text)!important; border:1px solid var(--border)!important; border-radius:999px!important; padding:6px 12px!important; font-size:12.5px!important; font-weight:600!important; }
+  .att-link { background:var(--bg)!important; color:var(--text)!important; border:1px solid var(--border)!important; border-radius:999px!important; padding:6px 12px!important; font-size:12.5px!important; font-weight:600!important; cursor:pointer; }
+  .att-link.live { background:#16a34a!important; color:#fff!important; border-color:#16a34a!important; }
+  .ai-trans { font-size:12px; color:#1b64da; margin-top:5px; line-height:1.45; border-top:1px dashed var(--border); padding-top:4px; }
+  #aiVoiceBtn { flex:none; border:1px solid var(--border); background:var(--bg); border-radius:8px; cursor:pointer; font-size:16px; padding:0 12px; }
+  #aiVoiceBtn.live { background:#e03131; color:#fff; border-color:#e03131; }
   .name-badge { font-size:12px; }
   /* 랭킹 모달 */
   .info-modal { padding:16px 18px; max-height:78vh; overflow-y:auto; }
@@ -897,12 +901,14 @@
         <input id="aiTopic" placeholder="토론 주제 (비우면: 원/달러 환율·한국 경제)" />
         <button id="aiStart">▶ 시작</button>
         <button id="aiStop">⏸ 정지</button>
+        <button id="aiTransBtn" class="att-link" title="AI 답변을 영어로 자동 번역">🌐 영어번역</button>
         <button id="aiKeyBtn" class="att-link">🔑 키</button>
         <a class="att-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" title="구글 AI 스튜디오에서 무료 API 키 발급">🔑 무료 키 발급 ↗</a>
       </div>
       <div class="ai-msgs" id="aiMsgs"></div>
       <form class="chat-input" id="aiQForm" autocomplete="off">
-        <input id="aiQ" placeholder="세 AI에게 질문하기 (최대 300자)" maxlength="300" />
+        <button type="button" id="aiVoiceBtn" title="음성으로 질문하기">🎤</button>
+        <input id="aiQ" placeholder="세 AI에게 질문하기 (최대 300자) · 🎤로 말해서 입력" maxlength="300" />
         <button type="submit">질문</button>
       </form>
       <p class="news-loading" style="font-size:12px">
@@ -2899,17 +2905,45 @@
     }
     throw lastErr || new Error("Gemini 429 모든 키 할당량 초과");
   }
-  function aiPush(who, text, color, cls) { aiMsgs.push({ who, text, color, cls }); renderAiMsgs(); }
+  let aiTransOn = false, aiStt = null, aiSttOn = false;
+  function aiPush(who, text, color, cls) { const m = { who, text, color, cls }; aiMsgs.push(m); if (aiTransOn) aiTranslateMsg(m); renderAiMsgs(); }
+  function aiTransLine(m) {
+    if (!aiTransOn || m.cls === "sys" || !m.text || !hasHangul(m.text)) return "";
+    return `<div class="ai-trans">🌐 ${esc(m.en || "…")}</div>`;
+  }
+  async function aiTranslateMsg(m) {
+    if (m.en || !m.text || !hasHangul(m.text) || m.cls === "sys") return;
+    m.en = "…"; const t = await translateEN(m.text); m.en = t || "(번역 서버 혼잡 — 잠시 후 다시 시도)"; renderAiMsgs();
+  }
+  function aiTranslateAll() { aiMsgs.forEach((m) => { if (m.cls !== "sys") aiTranslateMsg(m); }); }
   function renderAiMsgs() {
     const box = $("aiMsgs"); if (!box) return;
     const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 100;
     box.innerHTML = aiMsgs.map((m) => {
-      if (m.cls === "q") return `<div class="ai-msg q"><div class="ai-bubble">📢 시청자 질문: ${esc(m.text)}</div></div>`;
+      if (m.cls === "q") return `<div class="ai-msg q"><div class="ai-bubble">📢 시청자 질문: ${esc(m.text)}${aiTransLine(m)}</div></div>`;
       if (m.cls === "sys") return `<div class="ai-msg sys"><div class="ai-bubble">${esc(m.text)}</div></div>`;
       const av = AI_AGENTS.find((a) => a.name === m.who);
-      return `<div class="ai-msg"><div class="ai-who"><span class="ai-av" style="background:${m.color}">${av ? av.av : "AI"}</span><span style="color:${m.color}">${esc(m.who)}</span></div><div class="ai-bubble">${esc(m.text)}</div></div>`;
+      return `<div class="ai-msg"><div class="ai-who"><span class="ai-av" style="background:${m.color}">${av ? av.av : "AI"}</span><span style="color:${m.color}">${esc(m.who)}</span></div><div class="ai-bubble">${esc(m.text)}${aiTransLine(m)}</div></div>`;
     }).join("") + (aiBusy ? `<div class="ai-thinking">…AI가 생각 중</div>` : "");
     if (atBottom) box.scrollTop = box.scrollHeight;
+  }
+  function aiTransToggle() {
+    aiTransOn = !aiTransOn;
+    $("aiTransBtn").classList.toggle("live", aiTransOn);
+    if (aiTransOn) aiTranslateAll();
+    renderAiMsgs();
+  }
+  // 음성으로 질문 입력 (Web Speech API)
+  function aiVoiceToggle() {
+    if (aiSttOn) { if (aiStt) { try { aiStt.onend = null; aiStt.stop(); } catch (e) {} aiStt = null; } aiSttOn = false; $("aiVoiceBtn").classList.remove("live"); return; }
+    if (!sttSupported()) { alert("이 브라우저는 음성 인식을 지원하지 않습니다. 크롬·엣지 웹브라우저를 사용해 주세요."); return; }
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    try { aiStt = new SR(); } catch (e) { return; }
+    aiStt.lang = "ko-KR"; aiStt.continuous = false; aiStt.interimResults = true;
+    aiStt.onresult = (e) => { let fin = "", itm = ""; for (let i = e.resultIndex; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) fin += r[0].transcript; else itm += r[0].transcript; } $("aiQ").value = (fin || itm).trim(); };
+    aiStt.onend = () => { aiSttOn = false; $("aiVoiceBtn").classList.remove("live"); };
+    aiStt.onerror = (e) => { aiSttOn = false; $("aiVoiceBtn").classList.remove("live"); if (e.error === "not-allowed" || e.error === "service-not-allowed") alert("마이크 권한이 차단되어 있습니다. 주소창 🔒에서 마이크를 허용해 주세요."); else if (e.error === "network") alert("음성 인식 서버 연결 실패. 인터넷 연결이 필요하며 설치형 앱에서는 동작하지 않습니다(크롬·엣지 웹브라우저 권장)."); };
+    try { aiStt.start(); aiSttOn = true; $("aiVoiceBtn").classList.add("live"); } catch (e) {}
   }
   function aiTranscript() { return aiMsgs.filter((m) => !m.cls || m.cls === "q").slice(-8).map((m) => `${m.cls === "q" ? "시청자질문" : m.who}: ${m.text}`).join("\n"); }
   function aiControls() { $("aiStart").textContent = aiRunning ? "▶ 진행중" : "▶ 시작"; $("aiStart").disabled = aiRunning; $("aiStop").disabled = !aiRunning; }
@@ -2992,6 +3026,8 @@
     aiControls();
     $("aiStart").onclick = aiStart; $("aiStop").onclick = aiStop;
     $("aiKeyBtn").onclick = showAiSetup;
+    $("aiTransBtn").onclick = aiTransToggle; $("aiTransBtn").classList.toggle("live", aiTransOn);
+    $("aiVoiceBtn").onclick = aiVoiceToggle;
     $("aiQForm").onsubmit = (e) => { e.preventDefault(); aiAsk($("aiQ").value); $("aiQ").value = ""; };
     if (!aiMsgs.length) aiStart(); // 자동 시작
     else renderAiMsgs();
@@ -3222,12 +3258,23 @@
   const hasHangul = (s) => /[ㄱ-힝]/.test(s);
   async function translateEN(text) {
     if (transCache[text]) return transCache[text];
+    // 1) 구글 번역 gtx (무료·키 없음·CORS 허용·품질 좋음)
+    try {
+      const r = await fetchTimeout("https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q=" + encodeURIComponent(text), {}, 8000);
+      if (r.ok) {
+        const j = await r.json();
+        const t = (j && j[0]) ? j[0].map((s) => (s && s[0]) ? s[0] : "").join("").trim() : "";
+        if (t) { transCache[text] = t; return t; }
+      }
+    } catch (e) {}
+    // 2) MyMemory (백업 · 일일 한도 있음)
     try {
       const r = await fetchTimeout("https://api.mymemory.translated.net/get?q=" + encodeURIComponent(text) + "&langpair=ko|en", {}, 8000);
       const j = await r.json();
       let t = j && j.responseData && j.responseData.translatedText;
-      if (t && !/MYMEMORY WARNING|INVALID/i.test(t)) { t = t.trim(); transCache[text] = t; return t; }
+      if (t && !/MYMEMORY WARNING|INVALID|YOU USED ALL/i.test(t)) { t = t.trim(); transCache[text] = t; return t; }
     } catch (e) {}
+    // 3) Gemini (키 있으면)
     try {
       if (geminiKeyList().length) {
         const t = (await callGemini("Translate the user's text into natural English. Output ONLY the English translation, nothing else.", text)).trim();

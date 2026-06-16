@@ -404,8 +404,9 @@
   .meet-splitbar .msb-label { font-size:12px; color:var(--muted); margin-right:2px; }
   .meet-splitbar .msb { font-size:12.5px; font-weight:700; padding:5px 11px; border-radius:999px; border:1px solid var(--border); background:var(--card); color:var(--text); cursor:pointer; }
   .meet-splitbar .msb.active { background:var(--accent); color:var(--on-accent); border-color:var(--accent); }
-  .meet-grid { display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); }
-  .meet-grid.split { height:68vh; grid-auto-rows:1fr; }
+  .meet-grid { display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(var(--meet-tile,220px),1fr)); }
+  .meet-grid.split { height:var(--meet-h,68vh); grid-auto-rows:1fr; }
+  .meet-size { width:120px; accent-color:var(--accent); cursor:pointer; vertical-align:middle; }
   .meet-grid.split .vtile { aspect-ratio:auto; height:100%; min-height:0; }
   .meet-grid.split-2 { grid-template-columns:repeat(2,1fr); }
   .meet-grid.split-4 { grid-template-columns:repeat(2,1fr); grid-template-rows:repeat(2,1fr); }
@@ -892,6 +893,8 @@
             <button class="msb" data-split="4">4분할</button>
             <button class="msb" data-split="8">8분할</button>
             <button class="msb" data-split="16">16분할</button>
+            <span class="msb-label" style="margin-left:auto">크기</span>
+            <input id="meetSize" class="meet-size" type="range" min="1" max="100" value="30" title="화면 크기 조절" />
           </div>
           <div class="meet-grid" id="meetGrid"></div>
           <div class="meet-controls">
@@ -3220,6 +3223,17 @@
     $("meetGrid").innerHTML = ""; vcOn = false; vcSumMin = 0;
     $("meetRoom").style.display = "none"; $("meetLobby").style.display = "";
   }
+  /* 화면 크기 조절 */
+  function applyMeetSize() {
+    const s = parseInt($("meetSize").value, 10) || 30;
+    const tile = Math.round(140 + s * 3);          // 143~440px (자동 레이아웃 타일 최소폭)
+    const h = Math.round(45 + s * 0.42);            // 45~87vh (분할 레이아웃 높이)
+    const g = $("meetGrid");
+    g.style.setProperty("--meet-tile", tile + "px");
+    g.style.setProperty("--meet-h", h + "vh");
+    try { localStorage.setItem("meetSize", String(s)); } catch (e) {}
+  }
+
   /* 화면 분할 레이아웃 (2/4/8/16) */
   function meetSetLayout(n) {
     const g = $("meetGrid");
@@ -3265,6 +3279,8 @@
     $("meetChatToggle").onclick = () => $("meetChat").classList.toggle("hidden");
     $("meetChatClose").onclick = () => $("meetChat").classList.add("hidden");
     document.querySelectorAll(".meet-splitbar .msb").forEach((b) => { b.onclick = () => meetSetLayout(parseInt(b.dataset.split, 10) || 0); });
+    const savedSize = localStorage.getItem("meetSize"); if (savedSize) $("meetSize").value = savedSize;
+    $("meetSize").addEventListener("input", applyMeetSize); applyMeetSize();
     $("meetTabChat").onclick = () => meetSideTab("chat");
     $("meetTabDoc").onclick = () => meetSideTab("doc");
     $("meetDoc").addEventListener("input", meetDocChanged);

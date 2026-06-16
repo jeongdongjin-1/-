@@ -407,6 +407,12 @@
   .meet-grid { display:grid; gap:10px; grid-template-columns:repeat(auto-fill,minmax(var(--meet-tile,220px),1fr)); }
   .meet-grid.split { height:var(--meet-h,68vh); grid-auto-rows:1fr; }
   .meet-size { width:120px; accent-color:var(--accent); cursor:pointer; vertical-align:middle; }
+  .meet-caption { text-align:center; margin:10px auto 0; max-width:900px; min-height:1px; opacity:0; transition:opacity .2s; }
+  .meet-caption.show { opacity:1; }
+  .meet-caption .cap-box { display:inline-block; background:rgba(0,0,0,.82); color:#fff; padding:8px 16px; border-radius:10px; max-width:100%; }
+  .meet-caption .cap-nick { font-size:12px; opacity:.75; margin-right:6px; }
+  .meet-caption .cap-ko { font-size:17px; font-weight:700; }
+  .meet-caption .cap-en { display:block; font-size:14px; color:#ffe69a; margin-top:3px; }
   .meet-grid.split .vtile { aspect-ratio:auto; height:100%; min-height:0; }
   .meet-grid.split-2 { grid-template-columns:repeat(2,1fr); }
   .meet-grid.split-4 { grid-template-columns:repeat(2,1fr); grid-template-rows:repeat(2,1fr); }
@@ -897,6 +903,7 @@
             <input id="meetSize" class="meet-size" type="range" min="1" max="100" value="30" title="화면 크기 조절" />
           </div>
           <div class="meet-grid" id="meetGrid"></div>
+          <div id="meetCaption" class="meet-caption"></div>
           <div class="meet-controls">
             <button id="meetMic" title="마이크">🎤</button>
             <button id="meetCam" title="카메라">📷</button>
@@ -3022,7 +3029,23 @@
     vcLog.push({ nick, text, voice: !!voice });
     // 번역 표시: 자동 번역(EN)이 켜져 있거나, 음성으로 들어온 말은 항상 영어로 번역
     if (vcTransOn || voice) meetShowTrans(id, text);
+    if (voice) meetCaptionVoice(nick, text); // 송출 화면 밑 자막
     return id;
+  }
+
+  /* 송출 화면 하단 실시간 자막 (한국어 + 영어 번역) */
+  let capTimer = null;
+  function meetCaptionShow(nick, ko, en) {
+    const el = $("meetCaption"); if (!el) return;
+    el.innerHTML = `<span class="cap-box"><span class="cap-nick">${esc(nick)}</span><span class="cap-ko">${esc(ko)}</span>` +
+      (en ? `<span class="cap-en">🌐 ${esc(en)}</span>` : "") + `</span>`;
+    el.classList.add("show");
+    if (capTimer) clearTimeout(capTimer);
+    capTimer = setTimeout(() => el.classList.remove("show"), 6500);
+  }
+  async function meetCaptionVoice(nick, text) {
+    meetCaptionShow(nick, text, "");           // 한국어 먼저
+    if (hasHangul(text)) { const t = await translateEN(text); if (t) meetCaptionShow(nick, text, t); } // 영어 번역 추가
   }
 
   /* 영어 자동 번역 (무료 MyMemory, 실패 시 Gemini) */
@@ -3203,7 +3226,7 @@
     }
     sttUpdateBtn();
     $("meetTrans").classList.toggle("live", vcTransOn); $("meetTrans").classList.toggle("off", !vcTransOn);
-    meetSetLayout(0); meetSideTab("chat");
+    meetSetLayout(0); meetSideTab("chat"); $("meetCaption").classList.remove("show");
     const ok = await ensureMqttLib(); if (!ok || !window.mqtt) { alert("연결 라이브러리를 불러오지 못했습니다."); meetLeave(); return; }
     vcMqc = window.mqtt.connect(MQTT_URL, { clientId: "krwrtc-" + myId, reconnectPeriod: 3000, will: { topic: RTC_TOPIC, payload: JSON.stringify({ t: "leave", from: myId }), qos: 0 } });
     vcMqc.on("connect", () => { vcMqc.subscribe(RTC_TOPIC); rtcSend({ t: "hello", from: myId, nick: meetNick() }); });

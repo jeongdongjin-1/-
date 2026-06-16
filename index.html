@@ -2635,8 +2635,15 @@
   }
 
   /* ===== AI 토론방 (Google Gemini · 제미나이/ChatGPT/클로드 페르소나) ===== */
-  const GEMINI_MODEL = "gemini-2.0-flash";
-  const geminiKey = () => localStorage.getItem("geminiKey") || "";
+  // 여러 키 로테이션 + 모델 선택으로 무료 한도(429) 대응
+  function geminiKeyList() {
+    const multi = (localStorage.getItem("geminiKeys") || "").split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+    if (multi.length) return multi;
+    const one = (localStorage.getItem("geminiKey") || "").trim();
+    return one ? [one] : [];
+  }
+  const geminiModel = () => localStorage.getItem("geminiModel") || "gemini-2.5-flash-lite";
+  let aiKeyIdx = 0;
   const AI_AGENTS = [
     { name: "제미나이", color: "#1a73e8", av: "G", sys: "당신은 'Gemini(제미나이)'입니다. 데이터와 근거 중심으로 핵심을 간결하게 한국어 2~3문장으로 말합니다. 다른 AI의 직전 발언에 자연스럽게 반응하며 토론을 이어가세요. 사회자/메타발언 없이 내용만." },
     { name: "ChatGPT", color: "#10a37f", av: "C", sys: "당신은 'ChatGPT' 역할입니다. 균형 잡히고 친근한 어조로 장단점을 짚으며 한국어 2~3문장으로 토론합니다. 직전 발언에 반응하세요. 내용만 말하세요." },
@@ -2645,18 +2652,28 @@
   let aiMsgs = [], aiRunning = false, aiTurn = 0, aiQueue = [], aiBusy = false;
 
   async function callGemini(systemText, userText) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(geminiKey())}`;
+    const keys = geminiKeyList();
+    if (!keys.length) throw new Error("API_KEY_INVALID 키 없음");
     const body = {
       systemInstruction: { parts: [{ text: systemText }] },
       contents: [{ role: "user", parts: [{ text: userText }] }],
       generationConfig: { temperature: 0.9, maxOutputTokens: 256 },
     };
-    const r = await fetchTimeout(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, 20000);
-    if (!r.ok) { const t = await r.text(); throw new Error("Gemini " + r.status + " " + t.slice(0, 140)); }
-    const j = await r.json();
-    const text = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts || []).map((p) => p.text || "").join("").trim();
-    if (!text) throw new Error("빈 응답(차단/모델 확인)");
-    return text;
+    let lastErr;
+    for (let i = 0; i < keys.length; i++) { // 429면 다음 키로 자동 전환(로테이션)
+      const key = keys[aiKeyIdx % keys.length];
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${geminiModel()}:generateContent?key=${encodeURIComponent(key)}`;
+      let r;
+      try { r = await fetchTimeout(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, 20000); }
+      catch (e) { lastErr = e; aiKeyIdx++; continue; }
+      if (r.status === 429) { lastErr = new Error("Gemini 429 quota(할당량 초과)"); aiKeyIdx++; continue; }
+      if (!r.ok) { const t = await r.text(); throw new Error("Gemini " + r.status + " " + t.slice(0, 140)); }
+      const j = await r.json();
+      const text = (j.candidates && j.candidates[0] && j.candidates[0].content && j.candidates[0].content.parts || []).map((p) => p.text || "").join("").trim();
+      if (!text) throw new Error("빈 응답(차단/모델 확인)");
+      return text;
+    }
+    throw lastErr || new Error("Gemini 429 모든 키 할당량 초과");
   }
   function aiPush(who, text, color, cls) { aiMsgs.push({ who, text, color, cls }); renderAiMsgs(); }
   function renderAiMsgs() {
@@ -2685,21 +2702,27 @@
       const text = await callGemini(agent.sys, inst);
       aiBusy = false; aiPush(agent.name, text, agent.color);
     } catch (e) {
-      aiBusy = false; aiRunning = false; aiControls();
+      aiBusy = false;
       const msg = String(e.message || "");
+      if (/429|quota|exceed|모든 키/i.test(msg)) {
+        // 할당량 초과 → 죽지 않고 60초 후 자동 재시도(running 유지)
+        aiPush(null, "⏳ 모든 키 할당량 초과 — 60초 후 자동 재시도합니다. (🔑에서 키 추가 또는 모델을 flash-lite로 바꾸면 한도↑)", null, "sys");
+        if (aiRunning) setTimeout(() => { if (aiRunning && !document.hidden) aiStep(topic); }, 60000);
+        return;
+      }
+      aiRunning = false; aiControls();
       let hint;
-      if (/429|quota|exceed/i.test(msg)) hint = "Gemini 무료 할당량이 초과됐습니다. 결제(Billing) 설정을 켜거나, 잠시 후 다시 시도하거나, 할당량이 남은 다른 키를 사용하세요.";
-      else if (/400|API_KEY_INVALID|invalid/i.test(msg)) hint = "API 키가 올바르지 않습니다. aistudio.google.com/apikey 에서 'AIza…' 키를 발급받아 🔑 키에 넣어주세요.";
+      if (/400|API_KEY_INVALID|invalid/i.test(msg)) hint = "API 키가 올바르지 않습니다. aistudio.google.com/apikey 에서 'AIza…' 키를 발급받아 🔑 키에 넣어주세요.";
       else if (/403|PERMISSION|disabled/i.test(msg)) hint = "키 권한/Generative Language API 사용 설정을 확인하세요.";
       else hint = "네트워크 또는 모델 설정을 확인하세요.";
       aiPush(null, "⚠ AI 호출 실패 — " + hint + "\n(상세: " + msg.slice(0, 120) + ")", null, "sys");
       return;
     }
     if (aiMsgs.filter((m) => !m.cls).length >= 30) { aiRunning = false; aiControls(); aiPush(null, "자동 토론 30턴 도달 — ▶ 시작으로 이어가거나 질문을 넣어보세요.", null, "sys"); return; }
-    if (aiRunning && !document.hidden) setTimeout(() => aiStep(topic), 8000);
+    if (aiRunning && !document.hidden) setTimeout(() => aiStep(topic), 12000);
   }
   function aiStart() {
-    if (!geminiKey()) { showAiSetup(); return; }
+    if (!geminiKeyList().length) { showAiSetup(); return; }
     if (aiRunning) return;
     aiRunning = true; aiControls();
     const topic = ($("aiTopic").value.trim()) || "원/달러 환율 전망과 한국 경제";
@@ -2710,17 +2733,29 @@
   function aiAsk(q) { q = (q || "").trim(); if (!q) return; aiQueue.push(q.slice(0, 300)); if (!aiRunning) aiStart(); }
   function showAiSetup() {
     $("aiSetup").style.display = ""; $("aiRoom").style.display = "none";
+    const models = ["gemini-2.5-flash-lite", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"];
+    const cur = geminiModel();
+    const mopts = models.map((m) => `<option value="${m}" ${m === cur ? "selected" : ""}>${m}${m === "gemini-2.5-flash-lite" ? " (무료 한도 넉넉)" : ""}</option>`).join("");
     $("aiSetup").innerHTML = `<div class="ai-setup">
       <h3>🤖 AI 토론방 설정 (Google Gemini)</h3>
-      <p style="font-size:14px;color:var(--muted)">Google Gemini API 키를 입력하면 제미나이·ChatGPT·클로드 3명이 자동 토론합니다.</p>
-      <input id="aiKeyInput" type="password" placeholder="Gemini API 키 (AIza... 형식)" value="${esc(geminiKey())}" />
+      <p style="font-size:14px;color:var(--muted)">키를 <b>여러 개</b> 넣으면 한도(429) 초과 시 자동으로 다음 키로 전환됩니다(줄/쉼표로 구분).</p>
+      <textarea id="aiKeyInput" rows="4" placeholder="Gemini API 키 (AIza...) — 여러 개면 줄바꿈으로 입력" style="width:100%;padding:10px 12px;box-sizing:border-box;font-family:monospace;font-size:12px">${esc((localStorage.getItem("geminiKeys") || localStorage.getItem("geminiKey") || ""))}</textarea>
+      <div style="display:flex;gap:8px;align-items:center;margin:8px 0">
+        <label style="font-size:13px;color:var(--muted)">모델</label>
+        <select id="aiModelSel" style="flex:1;padding:8px">${mopts}</select>
+      </div>
       <button id="aiKeySave">저장하고 시작</button>
-      <p class="warn">⚠ 키는 이 브라우저에만 저장되며 서버/저장소에 올리지 않습니다. 단, <b>채팅에 노출된 키는 폐기·재발급</b>을 권장합니다. 키 발급: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a></p>
+      <p class="warn">⚠ 키는 이 브라우저에만 저장되며 저장소/서버에 올리지 않습니다. <b>채팅에 노출된 키는 폐기·재발급</b> 권장. 무료 키 발급: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer">aistudio.google.com/apikey</a> · 한도 초과 시: 키 추가 / flash-lite 모델 / 결제 설정</p>
     </div>`;
-    $("aiKeySave").onclick = () => { const v = $("aiKeyInput").value.trim(); if (!v) { alert("키를 입력하세요."); return; } localStorage.setItem("geminiKey", v); initAi(); };
+    $("aiKeySave").onclick = () => {
+      const v = $("aiKeyInput").value.trim(); if (!v) { alert("키를 입력하세요."); return; }
+      localStorage.setItem("geminiKeys", v); localStorage.removeItem("geminiKey");
+      localStorage.setItem("geminiModel", $("aiModelSel").value);
+      aiKeyIdx = 0; initAi();
+    };
   }
   function initAi() {
-    if (!geminiKey()) { showAiSetup(); return; }
+    if (!geminiKeyList().length) { showAiSetup(); return; }
     $("aiSetup").style.display = "none"; $("aiRoom").style.display = "";
     aiControls();
     $("aiStart").onclick = aiStart; $("aiStop").onclick = aiStop;

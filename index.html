@@ -832,6 +832,15 @@
 
   <div id="tab-chat" style="display:none">
     <div id="chatSetup" style="display:none"></div>
+    <div id="chatLobby" style="display:none">
+      <div class="meet-lobby">
+        <h3>💬 실시간 토론방</h3>
+        <p style="font-size:14px;color:var(--muted)">환율·세계 정세를 주제로 익명으로 자유롭게 이야기하는 공개 토론방입니다.</p>
+        <input id="chatLobbyNick" placeholder="닉네임" maxlength="20" />
+        <div><button id="chatJoinBtn">💬 토론방 들어가기</button></div>
+        <p class="warn" style="color:var(--up);font-size:13px;margin-top:10px">로그인·가입 없이 바로 입장합니다. 누구나 볼 수 있으니 개인정보·비방·욕설·투자권유는 삼가주세요.</p>
+      </div>
+    </div>
     <div id="chatRoom" style="display:none">
       <div class="chat-bar">
         <div class="chat-channels" id="chatChannels">
@@ -843,6 +852,7 @@
         <button id="superBtn" type="button" title="슈퍼챗(캐시)">💎 슈퍼챗</button>
         <button id="vdonBtn" type="button" title="영상 도네이션(캐시)">🎬 영상도네</button>
         <button id="chargeBtn" type="button" title="캐시 충전(체험)">💳 충전</button>
+        <button id="chatLeaveBtn" type="button" title="토론방 나가기">🚪 나가기</button>
       </div>
       <div class="chat-presence" id="chatPresence"></div>
       <div class="attend-bar" id="attendBar"></div>
@@ -1868,6 +1878,7 @@
   const esc = (s) => (s || "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
   let mqc = null, chatChannel = "fx", chatInited = false, chatLibLoading = null, chatStatus = "연결 중…";
+  let chatConnected = false, chatWired = false, chatPagehideWired = false;
   const myId = "u" + Math.random().toString(36).slice(2, 9);
   const chatLists = { fx: [], world: [] };
   const seenIds = { fx: new Set(), world: new Set() };
@@ -2386,10 +2397,29 @@
     return chatLibLoading;
   }
 
-  async function initChat() {
+  function initChat() {
+    // 이미 입장(연결)돼 있으면 방을 보여주고, 아니면 로비(들어가기) 화면.
     $("chatSetup").style.display = "none";
-    $("chatRoom").style.display = "";
-    if (chatInited) { renderChat(); return; }
+    if (chatConnected) { $("chatLobby").style.display = "none"; $("chatRoom").style.display = ""; renderChat(); return; }
+    $("chatRoom").style.display = "none"; $("chatLobby").style.display = "";
+    const ln = $("chatLobbyNick");
+    if (!ln.value) ln.value = localStorage.getItem("chatNick") || ("익명" + Math.floor(1000 + Math.random() * 9000));
+    $("chatJoinBtn").onclick = chatJoin;
+  }
+  function chatLeave() {
+    try { if (mqc && mqc.connected) mqc.publish(PRESENCE_TOPIC, JSON.stringify({ uid: myId, leave: true }), { qos: 0 }); } catch (e) {}
+    try { if (mqc) mqc.end(true); } catch (e) {}
+    mqc = null;
+    if (presenceTimer) { clearInterval(presenceTimer); presenceTimer = null; }
+    if (pruneTimer) { clearInterval(pruneTimer); pruneTimer = null; }
+    presenceReady = false; chatConnected = false;
+    presence.clear(); announced.clear(); renderPresence();
+    $("chatRoom").style.display = "none"; $("chatLobby").style.display = "";
+  }
+  async function chatJoin() {
+    const ln = $("chatLobbyNick").value.trim().slice(0, 20);
+    if (ln) localStorage.setItem("chatNick", ln);
+    $("chatSetup").style.display = "none"; $("chatLobby").style.display = "none"; $("chatRoom").style.display = "";
 
     const ok = await ensureMqttLib();
     if (!ok || !window.mqtt) {
@@ -2401,20 +2431,24 @@
     nick.value = localStorage.getItem("chatNick") || ("익명" + Math.floor(1000 + Math.random() * 9000));
     nick.onchange = () => localStorage.setItem("chatNick", nick.value.trim().slice(0, 20));
 
-    document.querySelectorAll("#chatChannels .chip").forEach((b) => {
-      b.onclick = () => {
-        if (chatChannel === b.dataset.ch) return;
-        chatChannel = b.dataset.ch;
-        document.querySelectorAll("#chatChannels .chip").forEach((x) => x.classList.toggle("active", x === b));
-        if (mqc && mqc.connected) { resubscribeChat(); publishPresence(); }
-        renderChat();
-      };
-    });
-    $("chatForm").onsubmit = sendChat;
-    $("donateBtn").onclick = openDonate;
-    $("superBtn").onclick = openSuper;
-    $("vdonBtn").onclick = openVdon;
-    $("chargeBtn").onclick = openCharge;
+    if (!chatWired) {
+      document.querySelectorAll("#chatChannels .chip").forEach((b) => {
+        b.onclick = () => {
+          if (chatChannel === b.dataset.ch) return;
+          chatChannel = b.dataset.ch;
+          document.querySelectorAll("#chatChannels .chip").forEach((x) => x.classList.toggle("active", x === b));
+          if (mqc && mqc.connected) { resubscribeChat(); publishPresence(); }
+          renderChat();
+        };
+      });
+      $("chatForm").onsubmit = sendChat;
+      $("donateBtn").onclick = openDonate;
+      $("superBtn").onclick = openSuper;
+      $("vdonBtn").onclick = openVdon;
+      $("chargeBtn").onclick = openCharge;
+      $("chatLeaveBtn").onclick = chatLeave;
+      chatWired = true;
+    }
     chatInited = true;
     if (!localStorage.getItem("cashInit")) { setCash(getCash() + 5000); localStorage.setItem("cashInit", "1"); } // 체험 캐시 지급
     applySkin(localStorage.getItem("chatSkin") || "none");
@@ -2438,11 +2472,15 @@
     mqc.on("error", () => { chatStatus = "연결 오류 — 재시도 중…"; renderChat(); });
     mqc.on("close", () => { chatStatus = "연결 끊김 — 재시도 중…"; renderChat(); });
     mqc.on("message", onChatMessage);
+    chatConnected = true;
 
     // 탭 닫힘/이탈 시 즉시 퇴장 알림 (Last-Will 보강)
-    window.addEventListener("pagehide", () => {
-      try { if (mqc && mqc.connected) mqc.publish(PRESENCE_TOPIC, JSON.stringify({ uid: myId, leave: true }), { qos: 0 }); } catch (e) {}
-    });
+    if (!chatPagehideWired) {
+      chatPagehideWired = true;
+      window.addEventListener("pagehide", () => {
+        try { if (mqc && mqc.connected) mqc.publish(PRESENCE_TOPIC, JSON.stringify({ uid: myId, leave: true }), { qos: 0 }); } catch (e) {}
+      });
+    }
   }
 
   function publishPresence() {

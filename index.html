@@ -3359,6 +3359,14 @@
   let vcAvatarOn = false, vcAvatarKind = null, vcAvatarVal = null, vcAvatarImg = null;
   let vcAvCanvas = null, vcAvStream = null, vcAvTrack = null, vcAvRAF = 0, vcAvAn = null, vcAvData = null, vcAvT = 0, vcAvVideo = null;
   let vcFd = null, vcFdReady = null, vcFdTimer = null, vcFdBusy = false, vcFaceTarget = null, vcFace = null; // 얼굴 추적
+  let vcLvlSmooth = 0, vcBlinkNext = 0, vcBlinkStart = 0; // VTuber 모션: 립싱크 평활·눈 깜빡임
+  function blinkAmount() { // 0(뜸)~1(감음) 자연스러운 자동 깜빡임
+    const now = Date.now();
+    if (!vcBlinkNext) vcBlinkNext = now + 2000;
+    if (vcBlinkStart) { const p = (now - vcBlinkStart) / 150; if (p >= 1) { vcBlinkStart = 0; vcBlinkNext = now + 1800 + Math.random() * 3500; return 0; } return Math.sin(p * Math.PI); }
+    if (now >= vcBlinkNext) { vcBlinkStart = now; return 0; }
+    return 0;
+  }
   function ensureFaceDetector() {
     if (vcFd) return Promise.resolve(vcFd);
     if (vcFdReady) return vcFdReady;
@@ -3368,7 +3376,7 @@
         if (!window.FaceDetection) return null;
         const fd = new window.FaceDetection({ locateFile: (f) => "https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/" + f });
         fd.setOptions({ model: "short", minDetectionConfidence: 0.5 });
-        fd.onResults((res) => { vcFdBusy = false; const d = res.detections && res.detections[0]; if (d && d.boundingBox) { const b = d.boundingBox; vcFaceTarget = { xc: b.xCenter, yc: b.yCenter, w: b.width, h: b.height }; } });
+        fd.onResults((res) => { vcFdBusy = false; const d = res.detections && res.detections[0]; if (d && d.boundingBox) { const b = d.boundingBox; const kp = d.keypoints; let roll = 0; if (kp && kp.length >= 2 && kp[0] && kp[1]) { roll = Math.atan2(kp[1].y - kp[0].y, kp[1].x - kp[0].x); if (roll > Math.PI / 2) roll -= Math.PI; if (roll < -Math.PI / 2) roll += Math.PI; roll = Math.max(-0.6, Math.min(0.6, roll)); } vcFaceTarget = { xc: b.xCenter, yc: b.yCenter, w: b.width, h: b.height, roll: roll }; } });
         vcFd = fd; return fd;
       } catch (e) { return null; }
     })();
@@ -3386,7 +3394,7 @@
     return Math.min(1, Math.sqrt(s / vcAvData.length) * 4.2);
   }
   const ANIMALS = { cat: "🐱 고양이", dog: "🐶 강아지", bear: "🐻 곰", rabbit: "🐰 토끼", fox: "🦊 여우", panda: "🐼 판다" };
-  function drawCuteAnimal(cx, type, lvl) { // 캔버스에 직접 그리는 귀여운 동물 (입은 음성에 반응)
+  function drawCuteAnimal(cx, type, lvl, blink) { // 캔버스에 직접 그리는 귀여운 동물 (입=음성, 눈=깜빡임)
     const P = {
       cat: { face: "#ffcf8b", ear: "#ffcf8b", inner: "#ff9ec7" },
       dog: { face: "#e6c39a", ear: "#b07d4f", inner: "#caa074" },
@@ -3411,12 +3419,12 @@
     cx.beginPath(); cx.arc(0, 0, R, 0, TAU); cx.fillStyle = P.face; cx.fill();
     if (type === "panda") { cx.fillStyle = "#222"; [-1, 1].forEach((s) => { cx.beginPath(); cx.ellipse(s * 38, -4, 22, 28, s * 0.3, 0, TAU); cx.fill(); }); }
     if (type === "fox") { cx.fillStyle = "#fff"; cx.beginPath(); cx.ellipse(0, 32, 52, 40, 0, 0, TAU); cx.fill(); }
-    // 눈
-    const eyeY = -8;
+    // 눈 (깜빡임: 세로로 감김)
+    const eyeY = -8, eyeOpen = Math.max(0.08, 1 - (blink || 0)), eR = (type === "panda") ? 9 : 13;
     cx.fillStyle = (type === "panda") ? "#fff" : "#3a2a1a";
-    [-1, 1].forEach((s) => { cx.beginPath(); cx.arc(s * 38, eyeY, (type === "panda") ? 9 : 13, 0, TAU); cx.fill(); });
-    if (type === "panda") { cx.fillStyle = "#222"; [-1, 1].forEach((s) => { cx.beginPath(); cx.arc(s * 38, eyeY, 5, 0, TAU); cx.fill(); }); }
-    cx.fillStyle = "#fff"; [-1, 1].forEach((s) => { cx.beginPath(); cx.arc(s * 38 + 3, eyeY - 4, 3, 0, TAU); cx.fill(); });
+    [-1, 1].forEach((s) => { cx.beginPath(); cx.ellipse(s * 38, eyeY, eR, eR * eyeOpen, 0, 0, TAU); cx.fill(); });
+    if (type === "panda") { cx.fillStyle = "#222"; [-1, 1].forEach((s) => { cx.beginPath(); cx.ellipse(s * 38, eyeY, 5, 5 * eyeOpen, 0, 0, TAU); cx.fill(); }); }
+    cx.fillStyle = "#fff"; [-1, 1].forEach((s) => { cx.beginPath(); cx.ellipse(s * 38 + 3, eyeY - 4, 3, 3 * eyeOpen, 0, 0, TAU); cx.fill(); });
     // 볼터치
     cx.fillStyle = "rgba(255,150,170,.5)"; [-1, 1].forEach((s) => { cx.beginPath(); cx.ellipse(s * 60, 22, 16, 10, 0, 0, TAU); cx.fill(); });
     // 코
@@ -3432,23 +3440,27 @@
   function avatarDraw() {
     vcAvRAF = requestAnimationFrame(avatarDraw);
     const cv = vcAvCanvas, cx = cv.getContext("2d"), W = cv.width, H = cv.height;
-    vcAvT += 0.05; const lvl = avatarLevel();
+    vcAvT += 0.05;
+    const rawLvl = avatarLevel();
+    vcLvlSmooth += (rawLvl - vcLvlSmooth) * 0.45; const lvl = vcLvlSmooth; // 립싱크 부드럽게
+    const blink = blinkAmount();
     // 배경: 실제 카메라 영상 유지(사람·배경 그대로). 캠이 꺼졌으면 그라데이션.
-    let fx = W / 2, fy = H * 0.42, avScale = 1.05; // 폴백(고정 위치)
+    let fx = W / 2, fy = H * 0.42, avScale = 1.05, roll = 0; // 폴백(고정 위치)
     if (vcCamOn && vcAvVideo && vcAvVideo.videoWidth) {
       const vw = vcAvVideo.videoWidth, vh = vcAvVideo.videoHeight, sc = Math.max(W / vw, H / vh), dw = vw * sc, dh = vh * sc, ox = (W - dw) / 2, oy = (H - dh) / 2;
       try { cx.drawImage(vcAvVideo, ox, oy, dw, dh); } catch (e) {}
-      if (vcFaceTarget) { // 검출된 얼굴 위치/크기로 부드럽게 이동 (얼굴보다 크게·살짝 위로 → 머리까지 감쌈)
-        const tx = ox + vcFaceTarget.xc * dw, ty = oy + (vcFaceTarget.yc - vcFaceTarget.h * 0.12) * dh, ts = Math.max(0.4, Math.min(3.8, (vcFaceTarget.w * dw * 2.5) / 200));
-        if (!vcFace) vcFace = { x: tx, y: ty, s: ts }; else { vcFace.x += (tx - vcFace.x) * 0.3; vcFace.y += (ty - vcFace.y) * 0.3; vcFace.s += (ts - vcFace.s) * 0.3; }
-        fx = vcFace.x; fy = vcFace.y; avScale = vcFace.s;
+      if (vcFaceTarget) { // 검출된 얼굴 위치/크기/기울기로 부드럽게 이동 (얼굴보다 크게·살짝 위로 → 머리까지 감쌈)
+        const tx = ox + vcFaceTarget.xc * dw, ty = oy + (vcFaceTarget.yc - vcFaceTarget.h * 0.12) * dh, ts = Math.max(0.4, Math.min(3.8, (vcFaceTarget.w * dw * 2.5) / 200)), tr = vcFaceTarget.roll || 0;
+        if (!vcFace) vcFace = { x: tx, y: ty, s: ts, r: tr }; else { vcFace.x += (tx - vcFace.x) * 0.3; vcFace.y += (ty - vcFace.y) * 0.3; vcFace.s += (ts - vcFace.s) * 0.3; vcFace.r += (tr - (vcFace.r || 0)) * 0.25; }
+        fx = vcFace.x; fy = vcFace.y; avScale = vcFace.s; roll = vcFace.r || 0;
       }
     } else { const g = cx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#1b2a4a"); g.addColorStop(1, "#0b1020"); cx.fillStyle = g; cx.fillRect(0, 0, W, H); }
-    // 아바타(가상화 이미지)는 추적된 얼굴 위에 오버레이
-    const bob = Math.sin(vcAvT) * 5 - lvl * 12, scale = avScale * (1 + lvl * 0.13);
-    cx.save(); cx.translate(fx, fy + bob); cx.scale(scale, scale);
+    // VTuber식 생동감: 머리 기울기 + 미세한 idle 흔들림 + 숨쉬기 + 말할 때 들썩임
+    const idleSway = Math.sin(vcAvT * 0.6) * 0.025, breath = 1 + Math.sin(vcAvT * 0.5) * 0.012;
+    const bob = Math.sin(vcAvT) * 4 - lvl * 12, scale = avScale * breath * (1 + lvl * 0.12);
+    cx.save(); cx.translate(fx, fy + bob); cx.rotate(roll + idleSway); cx.scale(scale, scale);
     if (vcAvatarKind === "animal") {
-      drawCuteAnimal(cx, vcAvatarVal, lvl);
+      drawCuteAnimal(cx, vcAvatarVal, lvl, blink);
     } else if (vcAvatarKind === "img" && vcAvatarImg) {
       const R = 112; cx.save(); cx.beginPath(); cx.arc(0, 0, R, 0, 7); cx.closePath(); cx.clip();
       const im = vcAvatarImg, ar = im.width / im.height; let dw = R * 2, dh = R * 2; if (ar > 1) { dh = R * 2; dw = dh * ar; } else { dw = R * 2; dh = dw / ar; }

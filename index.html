@@ -2468,7 +2468,24 @@
     if (!ln.value) ln.value = localStorage.getItem("chatNick") || ("익명" + Math.floor(1000 + Math.random() * 9000));
     $("chatJoinBtn").onclick = chatJoin;
   }
+  // 나가기 전 상태(채널·대화 내용) 저장/복원 — 재입장·새로고침 후에도 유지
+  let chatStateT = null;
+  function saveChatState() { try { localStorage.setItem("chatState", JSON.stringify({ ch: chatChannel, t: Date.now(), lists: { fx: (chatLists.fx || []).slice(-80), world: (chatLists.world || []).slice(-80) } })); } catch (e) {} }
+  function saveChatStateSoon() { if (chatStateT) return; chatStateT = setTimeout(() => { chatStateT = null; saveChatState(); }, 1500); }
+  function restoreChatState() {
+    let st; try { st = JSON.parse(localStorage.getItem("chatState") || "null"); } catch (e) {}
+    if (!st) return;
+    if (st.ch === "fx" || st.ch === "world") chatChannel = st.ch;
+    ["fx", "world"].forEach((ch) => {
+      const arr = (st.lists && st.lists[ch]) || [];
+      arr.forEach((m) => { if (m && m.id && !seenIds[ch].has(m.id)) { seenIds[ch].add(m.id); chatLists[ch].push(m); } });
+      chatLists[ch].sort((a, b) => a.t - b.t);
+      if (chatLists[ch].length > 100) chatLists[ch] = chatLists[ch].slice(-100);
+    });
+    document.querySelectorAll("#chatChannels .chip").forEach((x) => x.classList.toggle("active", x.dataset.ch === chatChannel));
+  }
   function chatLeave() {
+    saveChatState(); // 나가기 전 상태 저장
     try { if (mqc && mqc.connected) mqc.publish(PRESENCE_TOPIC, JSON.stringify({ uid: myId, leave: true }), { qos: 0 }); } catch (e) {}
     try { if (mqc) mqc.end(true); } catch (e) {}
     mqc = null;
@@ -2500,7 +2517,7 @@
           chatChannel = b.dataset.ch;
           document.querySelectorAll("#chatChannels .chip").forEach((x) => x.classList.toggle("active", x === b));
           if (mqc && mqc.connected) { resubscribeChat(); publishPresence(); }
-          renderChat();
+          renderChat(); saveChatState();
         };
       });
       $("chatForm").onsubmit = sendChat;
@@ -2515,6 +2532,7 @@
     chatInited = true;
     if (!localStorage.getItem("cashInit")) { setCash(getCash() + 5000); localStorage.setItem("cashInit", "1"); } // 체험 캐시 지급
     applySkin(localStorage.getItem("chatSkin") || "none");
+    restoreChatState(); // 나가기 전 채널·대화 내용 복원
     renderChat(); renderPresence(); renderAttend();
 
     chatStatus = "연결 중…"; renderChat();
@@ -2542,6 +2560,7 @@
     if (!chatPagehideWired) {
       chatPagehideWired = true;
       window.addEventListener("pagehide", () => {
+        saveChatState();
         try { if (mqc && mqc.connected) mqc.publish(PRESENCE_TOPIC, JSON.stringify({ uid: myId, leave: true }), { qos: 0 }); } catch (e) {}
       });
     }
@@ -2641,6 +2660,7 @@
     chatLists[ch].sort((a, b) => a.t - b.t);
     if (chatLists[ch].length > 100) chatLists[ch] = chatLists[ch].slice(-100);
     chatLogAppend(m, ch); // 하루 단위 기록 자동 저장
+    saveChatStateSoon(); // 나가기 전 상태 유지용(디바운스 저장)
     return true;
   }
 

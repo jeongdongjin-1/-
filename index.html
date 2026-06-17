@@ -3341,12 +3341,57 @@
     rtcSend({ t: "chat", from: myId, nick: meetNick(), text, g });
     inp.value = ""; inp.focus();
   }
+  /* 목소리 톤(피치) 분석 → 화자 구분 + 성별 추정 */
+  let vcPitchAn = null, vcPitchData = null, vcPitchTimer = null, vcPitchBuf = []; const vcSpeakers = [];
+  function detectPitch(buf, sr) { // 제한 구간 자기상관(autocorrelation)
+    let SIZE = buf.length, rms = 0;
+    for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
+    if (Math.sqrt(rms / SIZE) < 0.012) return -1; // 너무 조용하면 무시
+    const minLag = Math.floor(sr / 400), maxLag = Math.floor(sr / 70); // 70~400Hz 사람 목소리
+    let best = -1, bestCorr = 0;
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let c = 0; for (let i = 0; i < SIZE - lag; i++) c += buf[i] * buf[i + lag];
+      if (c > bestCorr) { bestCorr = c; best = lag; }
+    }
+    return best > 0 ? sr / best : -1;
+  }
+  function samplePitch() {
+    if (!vcPitchAn || !vcMicOn) return;
+    vcPitchAn.getFloatTimeDomainData(vcPitchData);
+    const p = detectPitch(vcPitchData, vcAudioCtx.sampleRate);
+    if (p > 60 && p < 400) { vcPitchBuf.push(p); if (vcPitchBuf.length > 40) vcPitchBuf.shift(); }
+  }
+  function startPitchTracking() {
+    try {
+      if (!vcAudioCtx) vcAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const src = vcAudioCtx.createMediaStreamSource(vcStream);
+      vcPitchAn = vcAudioCtx.createAnalyser(); vcPitchAn.fftSize = 2048;
+      src.connect(vcPitchAn);
+      vcPitchData = new Float32Array(vcPitchAn.fftSize);
+      if (vcPitchTimer) clearInterval(vcPitchTimer);
+      vcPitchTimer = setInterval(samplePitch, 120);
+    } catch (e) {}
+  }
+  function stopPitchTracking() { if (vcPitchTimer) { clearInterval(vcPitchTimer); vcPitchTimer = null; } vcPitchAn = null; vcPitchBuf = []; vcSpeakers.length = 0; }
+  function recentPitch() { const a = vcPitchBuf.slice(-20).sort((x, y) => x - y); return a.length ? a[Math.floor(a.length / 2)] : 0; } // 최근 발화 중앙값
+  function assignSpeaker(pitch) {
+    if (!pitch) return null;
+    let best = null, bd = 1e9;
+    vcSpeakers.forEach((s) => { const d = Math.abs(s.pitch - pitch); if (d < bd) { bd = d; best = s; } });
+    if (best && bd <= 28) { best.pitch = best.pitch * 0.7 + pitch * 0.3; best.n++; return best; } // 같은 톤 → 같은 화자
+    const s = { pitch, gender: pitch < 165 ? "m" : "f", nick: "화자" + (vcSpeakers.length + 1) }; // 새 화자
+    vcSpeakers.push(s); return s;
+  }
   // 말한 내용(음성 인식 최종 결과)을 채팅에 자동 입력 + 브로드캐스트
   function meetVoiceMsg(text) {
     text = (text || "").trim(); if (!text || !vcOn) return;
-    const g = meetGender();
-    meetChatAdd(meetNick(), text, true, true, g);
-    rtcSend({ t: "chat", from: myId, nick: meetNick(), text, voice: true, g });
+    const sp = assignSpeaker(recentPitch());
+    let nick = meetNick(), g = meetGender();
+    if (sp && vcSpeakers.length > 1) { nick = meetNick() + " · " + sp.nick; g = sp.gender; } // 복수 화자: 임의 닉네임 + 톤 기반 색
+    else if (sp && !g) { g = sp.gender; } // 단일 화자·성별 미선택: 톤으로 색 추정
+    vcPitchBuf = []; // 다음 발화 준비
+    meetChatAdd(nick, text, true, true, g);
+    rtcSend({ t: "chat", from: myId, nick, text, voice: true, g });
   }
 
   /* 이모티콘 + 폭죽 효과 */
@@ -3505,6 +3550,7 @@
     meetChatSys("🖱 참가자 화면을 드래그하면 위치를 바꿀 수 있습니다. (방장만 ⛔강퇴 가능)");
     meetCelebrate(); // 입장 축하 폭죽
     vcTile(myId, "나 (" + meetNick() + ")", vcStream, true);
+    startPitchTracking(); // 목소리 톤 분석(화자 구분·성별 추정)
     // 자동 요약 타이머
     vcSumMin = parseInt($("meetDur").value, 10) || 0;
     vcStartTs = Date.now();
@@ -3536,6 +3582,7 @@
     meetLeaveQuiet();
     meetStopShare();
     meetSttStop();
+    stopPitchTracking();
     vcMetersStop();
     if (vcTimerInt) { clearInterval(vcTimerInt); vcTimerInt = null; }
     if (vcSumTimer) { clearTimeout(vcSumTimer); vcSumTimer = null; }

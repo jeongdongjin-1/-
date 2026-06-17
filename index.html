@@ -503,6 +503,8 @@
     display:flex; flex-direction:column; gap:12px; }
   .ai-msg { max-width:88%; }
   .ai-msg .ai-who { font-size:12.5px; font-weight:800; margin-bottom:3px; display:flex; align-items:center; gap:6px; }
+  .ai-msg .ai-time { font-weight:500; font-size:11px; color:var(--muted); margin-left:auto; }
+  .ai-clock { margin-left:auto; font-size:13px; font-weight:700; color:var(--muted); font-variant-numeric:tabular-nums; }
   .ai-msg .ai-av { width:20px; height:20px; border-radius:50%; color:#fff; font-size:11px; display:inline-flex; align-items:center; justify-content:center; font-weight:800; }
   .ai-msg .ai-bubble { background:var(--bg); border:1px solid var(--border); border-radius:4px 14px 14px 14px; padding:9px 13px; font-size:14px; line-height:1.55; white-space:pre-wrap; word-break:break-word; }
   .ai-msg.q { align-self:center; max-width:94%; }
@@ -904,6 +906,7 @@
         <button id="aiTransBtn" class="att-link" title="AI 답변을 영어로 자동 번역">🌐 영어번역</button>
         <button id="aiKeyBtn" class="att-link">🔑 키</button>
         <a class="att-link" href="https://aistudio.google.com/apikey" target="_blank" rel="noopener noreferrer" title="구글 AI 스튜디오에서 무료 API 키 발급">🔑 무료 키 발급 ↗</a>
+        <span id="aiClock" class="ai-clock"></span>
       </div>
       <div class="ai-msgs" id="aiMsgs"></div>
       <form class="chat-input" id="aiQForm" autocomplete="off">
@@ -2905,8 +2908,10 @@
     }
     throw lastErr || new Error("Gemini 429 모든 키 할당량 초과");
   }
-  let aiTransOn = false, aiStt = null, aiSttOn = false;
-  function aiPush(who, text, color, cls) { const m = { who, text, color, cls }; aiMsgs.push(m); if (aiTransOn) aiTranslateMsg(m); renderAiMsgs(); }
+  let aiTransOn = false, aiStt = null, aiSttOn = false, aiClockTimer = null;
+  const aiTime = (t) => t ? new Date(t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
+  function aiPush(who, text, color, cls) { const m = { who, text, color, cls, t: Date.now() }; aiMsgs.push(m); if (aiTransOn) aiTranslateMsg(m); renderAiMsgs(); }
+  function aiClockTick() { const c = $("aiClock"); if (c) c.textContent = "🕒 " + new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
   function aiTransLine(m) {
     if (!aiTransOn || m.cls === "sys" || !m.text || !hasHangul(m.text)) return "";
     return `<div class="ai-trans">🌐 ${esc(m.en || "…")}</div>`;
@@ -2920,10 +2925,10 @@
     const box = $("aiMsgs"); if (!box) return;
     const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 100;
     box.innerHTML = aiMsgs.map((m) => {
-      if (m.cls === "q") return `<div class="ai-msg q"><div class="ai-bubble">📢 시청자 질문: ${esc(m.text)}${aiTransLine(m)}</div></div>`;
-      if (m.cls === "sys") return `<div class="ai-msg sys"><div class="ai-bubble">${esc(m.text)}</div></div>`;
+      if (m.cls === "q") return `<div class="ai-msg q"><div class="ai-who"><span>📢 시청자 질문</span><span class="ai-time">${aiTime(m.t)}</span></div><div class="ai-bubble">${esc(m.text)}${aiTransLine(m)}</div></div>`;
+      if (m.cls === "sys") return `<div class="ai-msg sys"><div class="ai-bubble">${esc(m.text)}${m.t ? ` <span class="ai-time">${aiTime(m.t)}</span>` : ""}</div></div>`;
       const av = AI_AGENTS.find((a) => a.name === m.who);
-      return `<div class="ai-msg"><div class="ai-who"><span class="ai-av" style="background:${m.color}">${av ? av.av : "AI"}</span><span style="color:${m.color}">${esc(m.who)}</span></div><div class="ai-bubble">${esc(m.text)}${aiTransLine(m)}</div></div>`;
+      return `<div class="ai-msg"><div class="ai-who"><span class="ai-av" style="background:${m.color}">${av ? av.av : "AI"}</span><span style="color:${m.color}">${esc(m.who)}</span><span class="ai-time">${aiTime(m.t)}</span></div><div class="ai-bubble">${esc(m.text)}${aiTransLine(m)}</div></div>`;
     }).join("") + (aiBusy ? `<div class="ai-thinking">…AI가 생각 중</div>` : "");
     if (atBottom) box.scrollTop = box.scrollHeight;
   }
@@ -3028,6 +3033,7 @@
     $("aiKeyBtn").onclick = showAiSetup;
     $("aiTransBtn").onclick = aiTransToggle; $("aiTransBtn").classList.toggle("live", aiTransOn);
     $("aiVoiceBtn").onclick = aiVoiceToggle;
+    aiClockTick(); if (!aiClockTimer) aiClockTimer = setInterval(aiClockTick, 1000); // 실시간 시계
     $("aiQForm").onsubmit = (e) => { e.preventDefault(); aiAsk($("aiQ").value); $("aiQ").value = ""; };
     if (!aiMsgs.length) aiStart(); // 자동 시작
     else renderAiMsgs();

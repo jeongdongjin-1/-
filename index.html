@@ -3341,25 +3341,35 @@
     rtcSend({ t: "chat", from: myId, nick: meetNick(), text, g });
     inp.value = ""; inp.focus();
   }
-  /* 목소리 톤(피치) 분석 → 화자 구분 + 성별 추정 */
+  /* 음성 분석: YIN 피치 + Meyda(MFCC 음색지문) → 화자 구분 + 성별 추정 */
   let vcPitchAn = null, vcPitchData = null, vcPitchTimer = null, vcPitchBuf = []; const vcSpeakers = [];
-  function detectPitch(buf, sr) { // 제한 구간 자기상관(autocorrelation)
-    let SIZE = buf.length, rms = 0;
-    for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
-    if (Math.sqrt(rms / SIZE) < 0.012) return -1; // 너무 조용하면 무시
-    const minLag = Math.floor(sr / 400), maxLag = Math.floor(sr / 70); // 70~400Hz 사람 목소리
-    let best = -1, bestCorr = 0;
-    for (let lag = minLag; lag <= maxLag; lag++) {
-      let c = 0; for (let i = 0; i < SIZE - lag; i++) c += buf[i] * buf[i + lag];
-      if (c > bestCorr) { bestCorr = c; best = lag; }
-    }
-    return best > 0 ? sr / best : -1;
+  let meydaLib = null, meydaAn = null, vcMfccBuf = [], vcCentBuf = [];
+  // YIN: 옥타브 오류·잡음에 강한 기본주파수(f0) 추정
+  function yinPitch(buf, sr) {
+    const SIZE = buf.length, half = SIZE >> 1, thresh = 0.15;
+    let rms = 0; for (let i = 0; i < SIZE; i++) rms += buf[i] * buf[i];
+    if (Math.sqrt(rms / SIZE) < 0.01) return -1;
+    const d = new Float32Array(half);
+    for (let tau = 1; tau < half; tau++) { let s = 0; for (let i = 0; i < half; i++) { const x = buf[i] - buf[i + tau]; s += x * x; } d[tau] = s; }
+    const cmnd = new Float32Array(half); cmnd[0] = 1; let run = 0;
+    for (let tau = 1; tau < half; tau++) { run += d[tau]; cmnd[tau] = run ? d[tau] * tau / run : 1; }
+    let tau = -1;
+    for (let t = 2; t < half; t++) { if (cmnd[t] < thresh) { while (t + 1 < half && cmnd[t + 1] < cmnd[t]) t++; tau = t; break; } }
+    if (tau === -1) { let mv = 1, mi = -1; for (let t = 2; t < half; t++) if (cmnd[t] < mv) { mv = cmnd[t]; mi = t; } if (mv < 0.3) tau = mi; else return -1; }
+    let bt = tau; // 포물선 보간으로 정밀화
+    if (tau > 1 && tau < half - 1) { const a = cmnd[tau - 1], b = cmnd[tau], c = cmnd[tau + 1]; const adj = (c - a) / (2 * (2 * b - a - c)); if (isFinite(adj)) bt = tau + adj; }
+    const f = sr / bt; return (f > 60 && f < 450) ? f : -1;
   }
   function samplePitch() {
     if (!vcPitchAn || !vcMicOn) return;
     vcPitchAn.getFloatTimeDomainData(vcPitchData);
-    const p = detectPitch(vcPitchData, vcAudioCtx.sampleRate);
-    if (p > 60 && p < 400) { vcPitchBuf.push(p); if (vcPitchBuf.length > 40) vcPitchBuf.shift(); }
+    const p = yinPitch(vcPitchData, vcAudioCtx.sampleRate);
+    if (p > 60 && p < 450) { vcPitchBuf.push(p); if (vcPitchBuf.length > 40) vcPitchBuf.shift(); }
+  }
+  function ensureMeyda() {
+    if (meydaLib) return Promise.resolve(meydaLib);
+    if (window.Meyda) { meydaLib = window.Meyda; return Promise.resolve(meydaLib); }
+    return new Promise((res) => { const s = document.createElement("script"); s.src = "https://cdn.jsdelivr.net/npm/meyda@5.6.3/dist/web/meyda.min.js"; s.onload = () => { meydaLib = window.Meyda || null; res(meydaLib); }; s.onerror = () => res(null); document.head.appendChild(s); });
   }
   function startPitchTracking() {
     try {
@@ -3369,27 +3379,60 @@
       src.connect(vcPitchAn);
       vcPitchData = new Float32Array(vcPitchAn.fftSize);
       if (vcPitchTimer) clearInterval(vcPitchTimer);
-      vcPitchTimer = setInterval(samplePitch, 120);
+      vcPitchTimer = setInterval(samplePitch, 110);
     } catch (e) {}
+    // Meyda 음색 특징(MFCC) — 피치가 비슷한 사람도 음색으로 구별
+    ensureMeyda().then((M) => {
+      if (!M || !vcStream || !vcAudioCtx) return;
+      try {
+        const src2 = vcAudioCtx.createMediaStreamSource(vcStream);
+        meydaAn = M.createMeydaAnalyzer({ audioContext: vcAudioCtx, source: src2, bufferSize: 1024, featureExtractors: ["mfcc", "spectralCentroid", "rms"],
+          callback: (f) => { if (f && f.rms > 0.02 && vcMicOn) { if (f.mfcc) { vcMfccBuf.push(f.mfcc); if (vcMfccBuf.length > 80) vcMfccBuf.shift(); } if (f.spectralCentroid) { vcCentBuf.push(f.spectralCentroid); if (vcCentBuf.length > 80) vcCentBuf.shift(); } } } });
+        meydaAn.start();
+      } catch (e) {}
+    });
   }
-  function stopPitchTracking() { if (vcPitchTimer) { clearInterval(vcPitchTimer); vcPitchTimer = null; } vcPitchAn = null; vcPitchBuf = []; vcSpeakers.length = 0; }
-  function recentPitch() { const a = vcPitchBuf.slice(-20).sort((x, y) => x - y); return a.length ? a[Math.floor(a.length / 2)] : 0; } // 최근 발화 중앙값
-  function assignSpeaker(pitch) {
+  function stopPitchTracking() {
+    if (vcPitchTimer) { clearInterval(vcPitchTimer); vcPitchTimer = null; }
+    if (meydaAn) { try { meydaAn.stop(); } catch (e) {} meydaAn = null; }
+    vcPitchAn = null; vcPitchBuf = []; vcMfccBuf = []; vcCentBuf = []; vcSpeakers.length = 0;
+  }
+  function recentPitch() { const a = vcPitchBuf.slice(-22).sort((x, y) => x - y); return a.length ? a[Math.floor(a.length / 2)] : 0; }
+  function avgVec(bufs) { if (!bufs.length) return null; const n = bufs[0].length, o = new Array(n).fill(0); bufs.forEach((v) => { for (let i = 0; i < n; i++) o[i] += v[i]; }); for (let i = 0; i < n; i++) o[i] /= bufs.length; return o; }
+  function cosine(a, b) { let d = 0, na = 0, nb = 0; for (let i = 0; i < a.length; i++) { d += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; } return d / (Math.sqrt(na * nb) || 1); }
+  function recentAvg(arr) { const a = arr.slice(-22); return a.length ? a.reduce((s, x) => s + x, 0) / a.length : 0; }
+  function guessGender(pitch, centroid) { // 피치 우선, 음색 중심주파수로 보정
+    let score = 0;
+    if (pitch > 0) score += pitch < 165 ? -1 : 1;
+    if (centroid > 0) score += centroid < 2100 ? -0.4 : 0.4;
+    return score <= 0 ? "m" : "f";
+  }
+  function assignSpeaker(pitch, mfcc, centroid) {
+    const gender = guessGender(pitch, centroid);
+    // 1) 음색(MFCC) 코사인 유사도로 같은 화자 판정(정밀). MFCC[0]=로그에너지는 제외(화자보다 음량 반영)
+    if (mfcc && mfcc.length > 3) {
+      const key = mfcc.slice(1);
+      let best = null, bs = -1;
+      vcSpeakers.forEach((s) => { if (s.mfcc) { const c = cosine(s.mfcc.slice(1), key); if (c > bs) { bs = c; best = s; } } });
+      if (best && bs > 0.82) { for (let i = 0; i < mfcc.length; i++) best.mfcc[i] = best.mfcc[i] * 0.7 + mfcc[i] * 0.3; if (pitch) best.pitch = best.pitch * 0.7 + pitch * 0.3; best.n++; return best; }
+      const s = { pitch: pitch || 0, mfcc: mfcc.slice(), gender, nick: "화자" + (vcSpeakers.length + 1) }; vcSpeakers.push(s); return s;
+    }
+    // 2) MFCC 없으면 피치 거리로 폴백
     if (!pitch) return null;
     let best = null, bd = 1e9;
-    vcSpeakers.forEach((s) => { const d = Math.abs(s.pitch - pitch); if (d < bd) { bd = d; best = s; } });
-    if (best && bd <= 28) { best.pitch = best.pitch * 0.7 + pitch * 0.3; best.n++; return best; } // 같은 톤 → 같은 화자
-    const s = { pitch, gender: pitch < 165 ? "m" : "f", nick: "화자" + (vcSpeakers.length + 1) }; // 새 화자
-    vcSpeakers.push(s); return s;
+    vcSpeakers.forEach((s) => { const d = Math.abs((s.pitch || 0) - pitch); if (d < bd) { bd = d; best = s; } });
+    if (best && bd <= 26) { best.pitch = best.pitch * 0.7 + pitch * 0.3; best.n++; return best; }
+    const s = { pitch, gender, nick: "화자" + (vcSpeakers.length + 1) }; vcSpeakers.push(s); return s;
   }
   // 말한 내용(음성 인식 최종 결과)을 채팅에 자동 입력 + 브로드캐스트
   function meetVoiceMsg(text) {
     text = (text || "").trim(); if (!text || !vcOn) return;
-    const sp = assignSpeaker(recentPitch());
+    const pitch = recentPitch(), mfcc = avgVec(vcMfccBuf.slice(-25)), centroid = recentAvg(vcCentBuf);
+    const sp = assignSpeaker(pitch, mfcc, centroid);
     let nick = meetNick(), g = meetGender();
-    if (sp && vcSpeakers.length > 1) { nick = meetNick() + " · " + sp.nick; g = sp.gender; } // 복수 화자: 임의 닉네임 + 톤 기반 색
-    else if (sp && !g) { g = sp.gender; } // 단일 화자·성별 미선택: 톤으로 색 추정
-    vcPitchBuf = []; // 다음 발화 준비
+    if (sp && vcSpeakers.length > 1) { nick = meetNick() + " · " + sp.nick; g = sp.gender; } // 복수 화자: 임의 닉네임 + 음색·톤 기반 색
+    else if (sp && !g) { g = sp.gender; } // 단일 화자·성별 미선택: 추정 색
+    vcPitchBuf = []; vcMfccBuf = []; vcCentBuf = []; // 다음 발화 준비
     meetChatAdd(nick, text, true, true, g);
     rtcSend({ t: "chat", from: myId, nick, text, voice: true, g });
   }

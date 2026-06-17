@@ -326,6 +326,9 @@
   .cl-sum { font-size:13px; line-height:1.55; white-space:pre-wrap; color:var(--text); margin-bottom:8px; }
   .cl-acts { display:flex; gap:6px; flex-wrap:wrap; }
   .cl-acts button { border:1px solid var(--border); background:var(--card); color:var(--text); border-radius:999px; padding:5px 12px; font-size:12.5px; font-weight:700; cursor:pointer; }
+  .rec-item { display:flex; align-items:center; gap:6px; flex-wrap:wrap; padding:5px 0; font-size:12.5px; }
+  .rec-item .rec-meta { flex:1; min-width:120px; color:var(--muted); }
+  .rec-item button { border:1px solid var(--border); background:var(--card); color:var(--text); border-radius:999px; padding:4px 10px; font-size:12px; font-weight:700; cursor:pointer; }
   .ai-trans { font-size:12px; color:#1b64da; margin-top:5px; line-height:1.45; border-top:1px dashed var(--border); padding-top:4px; }
   #aiVoiceBtn { flex:none; border:1px solid var(--border); background:var(--bg); border-radius:8px; cursor:pointer; font-size:16px; padding:0 12px; }
   #aiVoiceBtn.live { background:#e03131; color:#fff; border-color:#e03131; }
@@ -2714,20 +2717,75 @@
     else if (act === "del") { if (confirm(date + " 기록과 요약을 삭제할까요?")) { localStorage.removeItem(pf + ":" + date); localStorage.removeItem(pf + "sum:" + date); openLogModal(pf); } }
     else if (act === "sum") { const el = $("clsum-" + date); if (el) el.textContent = "요약 생성 중…"; logSummarize(pf, date, true).then((s) => { const e2 = $("clsum-" + date); if (e2) e2.textContent = s; }); }
   }
+  /* ===== 음성 하루 단위 자동 녹음 (MediaRecorder → IndexedDB 저장) ===== */
+  let recDBp = null, vcRec = null, vcRecChunks = [], vcRecStart = 0, recCtx = null, recDest = null, recSrcSet = null;
+  function recDB() { if (recDBp) return recDBp; recDBp = new Promise((res, rej) => { const r = indexedDB.open("krwRec", 1); r.onupgradeneeded = () => { const db = r.result; if (!db.objectStoreNames.contains("clips")) { const os = db.createObjectStore("clips", { keyPath: "id" }); os.createIndex("date", "date"); } }; r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); return recDBp; }
+  async function recSave(rec) { const db = await recDB(); return new Promise((res, rej) => { const tx = db.transaction("clips", "readwrite"); tx.objectStore("clips").put(rec); tx.oncomplete = res; tx.onerror = () => rej(tx.error); }); }
+  async function recListAll() { const db = await recDB(); return new Promise((res) => { const out = []; const tx = db.transaction("clips", "readonly"); tx.objectStore("clips").openCursor().onsuccess = (e) => { const c = e.target.result; if (c) { const v = c.value; out.push({ id: v.id, date: v.date, ts: v.ts, dur: v.dur, size: v.blob ? v.blob.size : 0 }); c.continue(); } else res(out); }; }); }
+  async function recGet(id) { const db = await recDB(); return new Promise((res) => { const rq = db.transaction("clips", "readonly").objectStore("clips").get(id); rq.onsuccess = () => res(rq.result); rq.onerror = () => res(null); }); }
+  async function recDel(id) { const db = await recDB(); return new Promise((res) => { const tx = db.transaction("clips", "readwrite"); tx.objectStore("clips").delete(id); tx.oncomplete = res; }); }
+  async function recPrune(days) { try { const l = await recListAll(); const keep = new Set([...new Set(l.map((r) => r.date))].sort().reverse().slice(0, days)); for (const r of l) if (!keep.has(r.date)) await recDel(r.id); } catch (e) {} }
+  function recAddStream(stream) { try { if (!recCtx || !recDest || !stream || !stream.getAudioTracks().length) return; const k = stream.getAudioTracks()[0].id; if (recSrcSet.has(k)) return; recSrcSet.add(k); recCtx.createMediaStreamSource(stream).connect(recDest); } catch (e) {} }
+  function recStart() {
+    if (!vcStream || !window.MediaRecorder) return;
+    try {
+      recCtx = new (window.AudioContext || window.webkitAudioContext)(); recDest = recCtx.createMediaStreamDestination(); recSrcSet = new Set();
+      recAddStream(vcStream); Object.values(vcPeers).forEach((p) => { if (p.stream) recAddStream(p.stream); }); // 내 마이크 + 참가자 음성 모두
+      const opt = (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")) ? { mimeType: "audio/webm;codecs=opus", audioBitsPerSecond: 40000 } : {};
+      vcRec = new MediaRecorder(recDest.stream, opt); vcRecChunks = []; vcRecStart = Date.now();
+      vcRec.ondataavailable = (e) => { if (e.data && e.data.size) vcRecChunks.push(e.data); };
+      vcRec.onstop = recFlush;
+      vcRec.start(2000);
+    } catch (e) {}
+  }
+  async function recFlush() {
+    const chunks = vcRecChunks; vcRecChunks = [];
+    try { if (recCtx) { recCtx.close(); recCtx = null; recDest = null; } } catch (e) {}
+    if (!chunks.length) return;
+    const blob = new Blob(chunks, { type: (vcRec && vcRec.mimeType) || "audio/webm" });
+    if (blob.size < 2000) return; // 너무 짧으면 스킵
+    try { await recSave({ id: "r" + Date.now() + "-" + Math.floor(Math.random() * 1000), date: dayOf(Date.now()), ts: Date.now(), dur: Math.round((Date.now() - vcRecStart) / 1000), blob }); } catch (e) {}
+  }
+  function recStop() { try { if (vcRec && vcRec.state !== "inactive") vcRec.stop(); } catch (e) {} vcRec = null; }
+  async function recRenderInto(container) {
+    const host = document.createElement("div"); host.className = "cl-list"; host.innerHTML = `<div style="padding:8px 14px;color:var(--muted)">🎙 음성 녹음 불러오는 중…</div>`;
+    container.insertBefore(host, container.firstChild);
+    let list; try { list = await recListAll(); } catch (e) { host.innerHTML = `<div style="padding:8px 14px;color:var(--muted)">녹음을 불러올 수 없습니다.</div>`; return; }
+    if (!list.length) { host.innerHTML = `<div style="padding:8px 14px;color:var(--muted)">🎙 저장된 음성 녹음이 없습니다. (회의에 입장하면 자동 녹음됩니다)</div>`; return; }
+    const byDate = {}; list.forEach((r) => { (byDate[r.date] = byDate[r.date] || []).push(r); });
+    const dates = Object.keys(byDate).sort().reverse();
+    host.innerHTML = `<div style="padding:6px 14px;font-weight:800">🎙 음성 녹음 (하루 단위 자동)</div>` + dates.map((d) => {
+      const clips = byDate[d].sort((a, b) => a.ts - b.ts);
+      return `<div class="cl-day"><div class="cl-head"><b>${d}</b> · ${clips.length}개</div>` + clips.map((c) =>
+        `<div class="rec-item" data-id="${c.id}"><span class="rec-meta">${new Date(c.ts).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} · ${c.dur || 0}초 · ${Math.round((c.size || 0) / 1024)}KB</span>` +
+        `<button data-act="play" data-id="${c.id}">▶ 재생</button><button data-act="dl" data-id="${c.id}">⬇</button><button data-act="del" data-id="${c.id}">🗑</button></div>`).join("") + `</div>`;
+    }).join("");
+    host.querySelectorAll("button[data-act]").forEach((b) => { b.onclick = () => recAction(b.dataset.act, b.dataset.id, host); });
+  }
+  async function recAction(act, id, host) {
+    if (act === "del") { if (confirm("이 녹음을 삭제할까요?")) { await recDel(id); openLogModal("meetlog"); } return; }
+    const rec = await recGet(id); if (!rec || !rec.blob) return;
+    const url = URL.createObjectURL(rec.blob);
+    if (act === "play") { const item = host.querySelector(`.rec-item[data-id="${id}"]`); let a = item.querySelector("audio"); if (a) a.remove(); a = document.createElement("audio"); a.controls = true; a.src = url; a.style.cssText = "display:block;margin-top:6px;width:100%"; item.appendChild(a); a.play(); }
+    else if (act === "dl") { const el = document.createElement("a"); el.href = url; el.download = "회의녹음_" + rec.date + "_" + new Date(rec.ts).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" }).replace(/[:\s]/g, "") + ".webm"; el.click(); setTimeout(() => URL.revokeObjectURL(url), 5000); }
+  }
   function openLogModal(pf) {
     const days = logDays(pf); const what = pf === "meetlog" ? "화상회의" : "토론방";
-    $("modalTitle").textContent = "📁 " + what + " 채팅 기록 (하루 단위 자동 저장)";
+    $("modalTitle").textContent = "📁 " + what + " 기록 (하루 단위 자동 저장)";
     $("modalOpen").style.display = "none";
     const body = $("modalBody"); body.style.background = "var(--card)";
-    if (!days.length) { body.innerHTML = `<div style="padding:26px;text-align:center;color:var(--muted)">아직 저장된 기록이 없습니다.<br>${what}에서 대화하면 하루 단위로 자동 저장됩니다.</div>`; $("mediaModal").style.display = "flex"; return; }
-    body.innerHTML = `<div class="cl-list">` + days.map((d) => {
-      const arr = logLoad(pf, d); const sum = localStorage.getItem(pf + "sum:" + d);
-      return `<div class="cl-day"><div class="cl-head"><b>${d}</b> <span style="color:var(--muted)">· ${arr.length}개 메시지</span></div>` +
-        `<div class="cl-sum" id="clsum-${d}">${sum ? esc(sum) : '<span style="color:var(--muted)">요약 아직 없음 — 아래 ‘요약 생성’</span>'}</div>` +
-        `<div class="cl-acts"><button data-act="sum" data-date="${d}">📝 요약 생성</button><button data-act="txt" data-date="${d}">⬇ TXT 저장</button><button data-act="del" data-date="${d}">🗑 삭제</button></div></div>`;
-    }).join("") + `</div>`;
+    if (!days.length) { body.innerHTML = `<div style="padding:20px;text-align:center;color:var(--muted)">아직 저장된 채팅 기록이 없습니다.</div>`; }
+    else {
+      body.innerHTML = `<div class="cl-list">` + days.map((d) => {
+        const arr = logLoad(pf, d); const sum = localStorage.getItem(pf + "sum:" + d);
+        return `<div class="cl-day"><div class="cl-head"><b>${d}</b> <span style="color:var(--muted)">· ${arr.length}개 메시지</span></div>` +
+          `<div class="cl-sum" id="clsum-${d}">${sum ? esc(sum) : '<span style="color:var(--muted)">요약 아직 없음 — 아래 ‘요약 생성’</span>'}</div>` +
+          `<div class="cl-acts"><button data-act="sum" data-date="${d}">📝 요약 생성</button><button data-act="txt" data-date="${d}">⬇ TXT 저장</button><button data-act="del" data-date="${d}">🗑 삭제</button></div></div>`;
+      }).join("") + `</div>`;
+      body.querySelectorAll(".cl-acts button").forEach((b) => { b.onclick = () => logAction(pf, b.dataset.act, b.dataset.date); });
+    }
     $("mediaModal").style.display = "flex";
-    body.querySelectorAll(".cl-acts button").forEach((b) => { b.onclick = () => logAction(pf, b.dataset.act, b.dataset.date); });
+    if (pf === "meetlog") recRenderInto(body); // 회의 기록엔 음성 녹음 섹션도 표시
   }
   // 토론방 래퍼(기존 호출 유지)
   function chatLogAppend(m, ch) { logAppend("chatlog", m, ch); }
@@ -3579,7 +3637,7 @@
     const vt = vcAvatarOn ? vcAvTrack : vcScreenTrack; // 아바타/화면공유 중 입장한 피어에도 동일 송출
     if (vt) { const s = pc.getSenders().find((x) => x.track && x.track.kind === "video"); if (s) s.replaceTrack(vt); }
     pc.onicecandidate = (e) => { if (e.candidate) rtcSend({ t: "ice", from: myId, to: id, cand: e.candidate }); };
-    pc.ontrack = (e) => vcTile(id, (vcPeers[id] && vcPeers[id].nick) || "상대", e.streams[0], false);
+    pc.ontrack = (e) => { if (vcPeers[id]) vcPeers[id].stream = e.streams[0]; recAddStream(e.streams[0]); vcTile(id, (vcPeers[id] && vcPeers[id].nick) || "상대", e.streams[0], false); };
     pc.onconnectionstatechange = () => { if (["failed", "closed"].includes(pc.connectionState)) vcRemovePeer(id); };
     const peer = vcPeers[id] = { pc, nick, pending: [] };
     return peer;
@@ -4019,6 +4077,7 @@
     logAuto("meetlog"); // 오래된 회의 기록 정리 + 어제 기록 자동 요약
     vcTile(myId, "나 (" + meetNick() + ")", vcStream, true);
     startPitchTracking(); // 목소리 톤 분석(화자 구분·성별 추정)
+    recPrune(7); recStart(); // 음성 하루 단위 자동 녹음(최근 7일 보관)
     // 자동 요약 타이머
     vcSumMin = parseInt($("meetDur").value, 10) || 0;
     vcStartTs = Date.now();
@@ -4055,6 +4114,7 @@
   }
   function meetLeave() {
     meetSaveDay();
+    recStop(); // 녹음 마무리·저장
     meetLeaveQuiet();
     meetStopShare();
     avatarCleanup();
@@ -4166,7 +4226,7 @@
     $("meetTabDoc").onclick = () => meetSideTab("doc");
     $("meetPplList").addEventListener("click", (e) => { const k = e.target.closest(".ppl-kick"); if (k) meetKick(k.dataset.id); });
     $("meetDoc").addEventListener("input", meetDocChanged);
-    window.addEventListener("pagehide", () => { if (vcOn) { meetSaveDay(); meetLeaveQuiet(); } });
+    window.addEventListener("pagehide", () => { if (vcOn) { meetSaveDay(); recStop(); meetLeaveQuiet(); } });
     vcWired = true;
   }
 

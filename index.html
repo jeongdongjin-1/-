@@ -434,6 +434,8 @@
   .vtile .vkick { position:absolute; top:6px; right:6px; border:none; background:rgba(224,49,49,.9); color:#fff; padding:3px 8px; border-radius:999px; cursor:pointer; font-size:11px; font-weight:700; opacity:0; transition:opacity .15s; }
   .vtile:hover .vkick { opacity:1; }
   .vtile .vtag { position:absolute; top:6px; right:6px; background:rgba(0,0,0,.55); color:#fff; font-size:11px; padding:2px 8px; border-radius:999px; }
+  .vtile .v3d { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); border:none; background:rgba(0,0,0,.62); color:#fff; padding:7px 13px; border-radius:999px; font-size:12.5px; font-weight:800; cursor:pointer; opacity:0; transition:opacity .15s; }
+  .vtile:hover .v3d { opacity:1; }
   .vtile .vmute { position:absolute; top:6px; left:6px; background:rgba(224,49,49,.92); color:#fff; font-size:12px; padding:2px 7px; border-radius:999px; display:none; }
   .vtile.muted .vmute { display:inline-block; }
   .vtile .vhost { position:absolute; bottom:8px; left:8px; transform:translateY(-22px); background:var(--accent); color:var(--on-accent); font-size:10px; font-weight:800; padding:1px 7px; border-radius:999px; display:none; }
@@ -2700,7 +2702,7 @@
     }
     ov.style.display = "flex";
   }
-  function closeMedia() { $("modalBody").innerHTML = ""; $("mediaModal").style.display = "none"; bgmDuck(false); }
+  function closeMedia() { if (three3D) { try { three3D.cancel(); } catch (e) {} } $("modalBody").innerHTML = ""; $("mediaModal").style.display = "none"; bgmDuck(false); }
 
   // 채팅하며 보기: 영상을 채팅 상단에 도킹(메시지·입력 그대로 사용 가능)
   function dockPlayer(type, data) {
@@ -3071,6 +3073,7 @@
       tile.innerHTML = `<video autoplay playsinline ${isLocal ? "muted" : ""}></video><span class="vlabel"></span>` +
         `<div class="vmeter" title="음성 레벨"><i class="vmeter-fill"></i></div>` +
         `<span class="vmute" title="음소거됨">🔇</span><span class="vhost">👑 방장</span>` +
+        `<button class="v3d" data-id="${esc(id)}" draggable="false" title="이 사람을 3D로 가상화">🧊 3D</button>` +
         (isLocal ? `<span class="vtag">나</span>` : `<button class="vkick" data-id="${esc(id)}" draggable="false" title="이 참가자 강퇴">⛔ 강퇴</button>`);
       $("meetGrid").appendChild(tile);
     }
@@ -3094,7 +3097,10 @@
   let vcDragId = null;
   function meetGridWire() {
     const g = $("meetGrid"); if (!g || g.dataset.wired) return; g.dataset.wired = "1";
-    g.addEventListener("click", (e) => { const k = e.target.closest(".vkick"); if (k) { e.preventDefault(); meetKick(k.dataset.id); } });
+    g.addEventListener("click", (e) => {
+      const k = e.target.closest(".vkick"); if (k) { e.preventDefault(); meetKick(k.dataset.id); return; }
+      const d = e.target.closest(".v3d"); if (d) { e.preventDefault(); const tile = d.closest(".vtile"); const v = tile && tile.querySelector("video"); const lbl = tile && tile.querySelector(".vlabel") ? tile.querySelector(".vlabel").textContent : ""; open3D(v, lbl); }
+    });
     g.addEventListener("dragstart", (e) => { const t = e.target.closest(".vtile"); if (!t) return; vcDragId = t.id; t.classList.add("dragging"); if (e.dataTransfer) e.dataTransfer.effectAllowed = "move"; });
     g.addEventListener("dragend", (e) => { const t = e.target.closest(".vtile"); if (t) t.classList.remove("dragging"); g.querySelectorAll(".dragover").forEach((x) => x.classList.remove("dragover")); });
     g.addEventListener("dragover", (e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = "move"; const t = e.target.closest(".vtile"); g.querySelectorAll(".dragover").forEach((x) => x.classList.remove("dragover")); if (t && t.id !== vcDragId) t.classList.add("dragover"); });
@@ -3144,6 +3150,96 @@
     Object.keys(vcMeters).forEach(vcMeterTeardown);
     if (vcMeterRAF) { cancelAnimationFrame(vcMeterRAF); vcMeterRAF = 0; }
     if (vcAudioCtx) { try { vcAudioCtx.close(); } catch (e) {} vcAudioCtx = null; }
+  }
+
+  /* ===== 3D 가상화 (영상 프레임 → 입체 부조 모델 + STL 내보내기) ===== */
+  let threeReady = null, three3D = null;
+  function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement("script"); s.src = src; s.onload = res; s.onerror = rej; document.head.appendChild(s); }); }
+  function ensureThree() {
+    if (window.THREE && window.THREE.OrbitControls) return Promise.resolve(true);
+    if (threeReady) return threeReady;
+    threeReady = (async () => {
+      await loadScript("https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js");
+      await loadScript("https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js");
+      return !!(window.THREE && window.THREE.OrbitControls);
+    })().catch(() => false);
+    return threeReady;
+  }
+  async function open3D(videoEl, label) {
+    if (!videoEl || !videoEl.videoWidth) { alert("아직 영상이 준비되지 않았습니다. 카메라가 켜진 뒤 다시 시도하세요."); return; }
+    const GW = 110, GH = Math.max(40, Math.round(GW * (videoEl.videoHeight / videoEl.videoWidth)));
+    const cv = document.createElement("canvas"); cv.width = GW; cv.height = GH;
+    const cx = cv.getContext("2d"); cx.drawImage(videoEl, 0, 0, GW, GH);
+    let img; try { img = cx.getImageData(0, 0, GW, GH); } catch (e) { alert("보안 정책으로 이 영상은 캡처할 수 없습니다."); return; }
+    $("modalTitle").textContent = "🧊 3D 가상화 — " + (label || "");
+    $("modalOpen").style.display = "none";
+    const body = $("modalBody"); body.style.background = "#0b0b10";
+    body.innerHTML = `<div id="td3dWrap" style="position:relative;width:100%;height:58vh;min-height:340px">
+        <div id="td3dLoad" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px">3D 모델 생성 중…</div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:center;align-items:center;padding:12px;flex-wrap:wrap">
+        <button id="td3dStl" style="border:none;border-radius:8px;padding:9px 16px;background:var(--accent);color:var(--on-accent);font-weight:700;cursor:pointer">⬇ STL 다운로드 (3D 프린팅)</button>
+        <button id="td3dPng" style="border:1px solid var(--border);border-radius:8px;padding:9px 16px;background:var(--card);color:var(--text);font-weight:700;cursor:pointer">🖼 이미지 저장</button>
+        <span style="color:#aaa;font-size:12px">🖱 드래그로 회전 · 휠로 확대</span>
+      </div>`;
+    $("mediaModal").style.display = "flex";
+    const ok = await ensureThree();
+    if (!ok) { const l = $("td3dLoad"); if (l) l.textContent = "3D 라이브러리를 불러오지 못했습니다(인터넷 확인)."; return; }
+    build3D(img, GW, GH, (label || "meet-3d").replace(/[^\w가-힣]+/g, "_"));
+  }
+  function build3D(img, GW, GH, fname) {
+    const THREE = window.THREE;
+    const wrap = $("td3dWrap"), load = $("td3dLoad");
+    const W = wrap.clientWidth, H = wrap.clientHeight;
+    const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0b0b10);
+    const cam = new THREE.PerspectiveCamera(45, W / H, 0.1, 1000); cam.position.set(0, 0, 145);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(W, H); renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    wrap.appendChild(renderer.domElement);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.65));
+    const dl = new THREE.DirectionalLight(0xffffff, 0.85); dl.position.set(1, 1, 2); scene.add(dl);
+    const aspect = GW / GH, planeW = 100, planeH = planeW / aspect;
+    const geo = new THREE.PlaneGeometry(planeW, planeH, GW - 1, GH - 1);
+    const pos = geo.attributes.position, colors = [], data = img.data, heightScale = 24;
+    for (let i = 0; i < GW * GH; i++) {
+      const di = i * 4;
+      const lum = (0.299 * data[di] + 0.587 * data[di + 1] + 0.114 * data[di + 2]) / 255;
+      pos.setZ(i, lum * heightScale);
+      colors.push(data[di] / 255, data[di + 1] / 255, data[di + 2] / 255);
+    }
+    geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0.0, side: THREE.DoubleSide });
+    const mesh = new THREE.Mesh(geo, mat); scene.add(mesh);
+    const controls = new THREE.OrbitControls(cam, renderer.domElement); controls.enableDamping = true; controls.autoRotate = true; controls.autoRotateSpeed = 1.1;
+    if (load) load.style.display = "none";
+    let raf;
+    function animate() { raf = requestAnimationFrame(animate); controls.update(); renderer.render(scene, cam); }
+    animate();
+    const onResize = () => { if (!wrap.clientWidth) return; cam.aspect = wrap.clientWidth / wrap.clientHeight; cam.updateProjectionMatrix(); renderer.setSize(wrap.clientWidth, wrap.clientHeight); };
+    window.addEventListener("resize", onResize);
+    three3D = { cancel: () => { cancelAnimationFrame(raf); window.removeEventListener("resize", onResize); try { geo.dispose(); mat.dispose(); renderer.dispose(); } catch (e) {} try { wrap.removeChild(renderer.domElement); } catch (e) {} three3D = null; } };
+    $("td3dStl").onclick = () => downloadSTL(geo, fname);
+    $("td3dPng").onclick = () => { try { const a = document.createElement("a"); a.href = renderer.domElement.toDataURL("image/png"); a.download = fname + ".png"; a.click(); } catch (e) {} };
+  }
+  function downloadSTL(geometry, name) {
+    const THREE = window.THREE;
+    const g = geometry.index ? geometry.toNonIndexed() : geometry;
+    const pos = g.attributes.position, tri = pos.count / 3;
+    const buf = new ArrayBuffer(84 + tri * 50), dv = new DataView(buf);
+    dv.setUint32(80, tri, true);
+    let off = 84; const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3(), cb = new THREE.Vector3(), ab = new THREE.Vector3();
+    for (let i = 0; i < tri; i++) {
+      a.fromBufferAttribute(pos, i * 3); b.fromBufferAttribute(pos, i * 3 + 1); c.fromBufferAttribute(pos, i * 3 + 2);
+      cb.subVectors(c, b); ab.subVectors(a, b); cb.cross(ab).normalize();
+      dv.setFloat32(off, cb.x, true); dv.setFloat32(off + 4, cb.y, true); dv.setFloat32(off + 8, cb.z, true); off += 12;
+      [a, b, c].forEach((v) => { dv.setFloat32(off, v.x, true); dv.setFloat32(off + 4, v.y, true); dv.setFloat32(off + 8, v.z, true); off += 12; });
+      dv.setUint16(off, 0, true); off += 2;
+    }
+    if (g !== geometry) g.dispose();
+    const blob = new Blob([buf], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob), el = document.createElement("a"); el.href = url; el.download = name + ".stl"; el.click();
+    setTimeout(() => URL.revokeObjectURL(url), 3000);
   }
   function vcCount() { const n = $("meetGrid").querySelectorAll(".vtile").length; $("meetCount").textContent = "참가자 " + n + "명"; meetUpdateHost(); renderMeetPeople(); }
   /* 방장 = 현재 참가자 중 id 사전순 최소 (서버 없이 결정적으로 합의) */

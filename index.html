@@ -3881,7 +3881,15 @@
     vcMqc.on("message", (_t, p) => { let m; try { m = JSON.parse(p.toString()); } catch (e) { return; } onRtc(m); });
   }
   function meetLeaveQuiet() { try { rtcSend({ t: "leave", from: myId }); } catch (e) {} }
+  // 이탈/방 종료 시에도 그 날짜 회의 기록 요약 저장(채팅 내용은 메시지마다 이미 저장됨)
+  function meetSaveDay() {
+    const day = dayOf(Date.now());
+    const arr = logLoad("meetlog", day); if (arr.length < 2) return;
+    try { localStorage.setItem("meetlogsum:" + day, localSummary(arr.map((m) => m.nick + ": " + m.text))); } catch (e) {} // 즉시 로컬 요약(끊겨도 보존)
+    try { logSummarize("meetlog", day, true); } catch (e) {} // 키 있으면 AI 요약으로 업그레이드(비동기)
+  }
   function meetLeave() {
+    meetSaveDay();
     meetLeaveQuiet();
     meetStopShare();
     avatarCleanup();
@@ -3993,7 +4001,7 @@
     $("meetTabDoc").onclick = () => meetSideTab("doc");
     $("meetPplList").addEventListener("click", (e) => { const k = e.target.closest(".ppl-kick"); if (k) meetKick(k.dataset.id); });
     $("meetDoc").addEventListener("input", meetDocChanged);
-    window.addEventListener("pagehide", () => { if (vcOn) meetLeaveQuiet(); });
+    window.addEventListener("pagehide", () => { if (vcOn) { meetSaveDay(); meetLeaveQuiet(); } });
     vcWired = true;
   }
 

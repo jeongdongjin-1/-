@@ -3151,7 +3151,6 @@
       tile.innerHTML = `<video autoplay playsinline ${isLocal ? "muted" : ""}></video><span class="vlabel"></span>` +
         `<div class="vmeter" title="음성 레벨"><i class="vmeter-fill"></i></div>` +
         `<span class="vmute" title="음소거됨">🔇</span><span class="vhost">👑 방장</span>` +
-        `<button class="v3d" data-id="${esc(id)}" draggable="false" title="이 사람을 3D로 가상화">🧊 3D</button>` +
         (isLocal ? `<span class="vtag">나</span>` : `<button class="vkick" data-id="${esc(id)}" draggable="false" title="이 참가자 강퇴">⛔ 강퇴</button>`);
       $("meetGrid").appendChild(tile);
     }
@@ -3176,8 +3175,7 @@
   function meetGridWire() {
     const g = $("meetGrid"); if (!g || g.dataset.wired) return; g.dataset.wired = "1";
     g.addEventListener("click", (e) => {
-      const k = e.target.closest(".vkick"); if (k) { e.preventDefault(); meetKick(k.dataset.id); return; }
-      const d = e.target.closest(".v3d"); if (d) { e.preventDefault(); const tile = d.closest(".vtile"); const v = tile && tile.querySelector("video"); const lbl = tile && tile.querySelector(".vlabel") ? tile.querySelector(".vlabel").textContent : ""; open3D(v, lbl); }
+      const k = e.target.closest(".vkick"); if (k) { e.preventDefault(); meetKick(k.dataset.id); }
     });
     g.addEventListener("dragstart", (e) => { const t = e.target.closest(".vtile"); if (!t) return; vcDragId = t.id; t.classList.add("dragging"); if (e.dataTransfer) e.dataTransfer.effectAllowed = "move"; });
     g.addEventListener("dragend", (e) => { const t = e.target.closest(".vtile"); if (t) t.classList.remove("dragging"); g.querySelectorAll(".dragover").forEach((x) => x.classList.remove("dragover")); });
@@ -3359,7 +3357,7 @@
 
   /* ===== 가상화 아바타 (카메라 대신 캔버스 송출 + 음성 반응) ===== */
   let vcAvatarOn = false, vcAvatarKind = null, vcAvatarVal = null, vcAvatarImg = null;
-  let vcAvCanvas = null, vcAvStream = null, vcAvTrack = null, vcAvRAF = 0, vcAvAn = null, vcAvData = null, vcAvT = 0;
+  let vcAvCanvas = null, vcAvStream = null, vcAvTrack = null, vcAvRAF = 0, vcAvAn = null, vcAvData = null, vcAvT = 0, vcAvVideo = null;
   function avatarLevel() {
     if (!vcAvAn || !vcMicOn) return 0;
     vcAvAn.getByteTimeDomainData(vcAvData);
@@ -3414,9 +3412,14 @@
     vcAvRAF = requestAnimationFrame(avatarDraw);
     const cv = vcAvCanvas, cx = cv.getContext("2d"), W = cv.width, H = cv.height;
     vcAvT += 0.05; const lvl = avatarLevel();
-    const g = cx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#1b2a4a"); g.addColorStop(1, "#0b1020"); cx.fillStyle = g; cx.fillRect(0, 0, W, H);
-    const bob = Math.sin(vcAvT) * 6 - lvl * 16, scale = 1 + lvl * 0.13;
-    cx.save(); cx.translate(W / 2, H / 2 + bob); cx.scale(scale, scale);
+    // 배경: 실제 카메라 영상 유지(사람·배경 그대로). 캠이 꺼졌으면 그라데이션.
+    if (vcCamOn && vcAvVideo && vcAvVideo.videoWidth) {
+      const vw = vcAvVideo.videoWidth, vh = vcAvVideo.videoHeight, sc = Math.max(W / vw, H / vh), dw = vw * sc, dh = vh * sc;
+      try { cx.drawImage(vcAvVideo, (W - dw) / 2, (H - dh) / 2, dw, dh); } catch (e) {}
+    } else { const g = cx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#1b2a4a"); g.addColorStop(1, "#0b1020"); cx.fillStyle = g; cx.fillRect(0, 0, W, H); }
+    // 아바타(가상화 이미지)는 사람 얼굴 위치(상단 중앙)에만 오버레이
+    const bob = Math.sin(vcAvT) * 5 - lvl * 12, scale = 0.78 * (1 + lvl * 0.13);
+    cx.save(); cx.translate(W / 2, H * 0.40 + bob); cx.scale(scale, scale);
     if (vcAvatarKind === "animal") {
       drawCuteAnimal(cx, vcAvatarVal, lvl);
     } else if (vcAvatarKind === "img" && vcAvatarImg) {
@@ -3443,6 +3446,8 @@
     if (vcScreen) meetStopShare();
     vcAvatarKind = kind; vcAvatarVal = val; vcAvatarImg = img || null;
     vcAvCanvas.width = 480; vcAvCanvas.height = 360;
+    if (!vcAvVideo) { vcAvVideo = document.createElement("video"); vcAvVideo.muted = true; vcAvVideo.playsInline = true; vcAvVideo.autoplay = true; }
+    if (vcAvVideo.srcObject !== vcStream) { vcAvVideo.srcObject = vcStream; try { vcAvVideo.play(); } catch (e) {} } // 배경용 카메라 프레임 소스
     try { if (!vcAudioCtx) vcAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); if (!vcAvAn) { const src = vcAudioCtx.createMediaStreamSource(vcStream); vcAvAn = vcAudioCtx.createAnalyser(); vcAvAn.fftSize = 512; src.connect(vcAvAn); vcAvData = new Uint8Array(vcAvAn.fftSize); } } catch (e) {}
     if (!vcAvRAF) avatarDraw();
     if (!vcAvStream) { vcAvStream = vcAvCanvas.captureStream(25); vcAvTrack = vcAvStream.getVideoTracks()[0]; }
@@ -3463,6 +3468,7 @@
   function avatarCleanup() {
     if (vcAvRAF) { cancelAnimationFrame(vcAvRAF); vcAvRAF = 0; }
     if (vcAvStream) { try { vcAvStream.getTracks().forEach((t) => t.stop()); } catch (e) {} }
+    if (vcAvVideo) { try { vcAvVideo.pause(); vcAvVideo.srcObject = null; } catch (e) {} vcAvVideo = null; }
     vcAvStream = null; vcAvTrack = null; vcAvAn = null; vcAvatarOn = false; vcAvatarImg = null;
   }
   function openAvatarPicker() {
@@ -3472,7 +3478,7 @@
     const body = $("modalBody"); body.style.background = "var(--card)";
     const emojis = ["🙂", "😎", "🐱", "🐶", "🦊", "🐼", "🐵", "🤖", "👽", "🦸", "🧑‍🚀", "👻", "🐯", "🦁", "🐸", "🐰"];
     body.innerHTML = `<div style="padding:16px">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:8px">카메라 대신 아바타가 송출되고, 말하면 아바타가 들썩이며 입이 움직입니다.</p>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:8px">실제 카메라 배경은 그대로 두고, 사람(얼굴) 위에만 아바타가 올라갑니다. 말하면 입이 움직여요.</p>
         <div style="font-size:12.5px;font-weight:800;margin:6px 0">🐾 귀여운 동물 (직접 그린 캐릭터)</div>
         <div id="avAnimal" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${Object.keys(ANIMALS).map((k) => `<button data-animal="${k}" style="font-size:13px;font-weight:700;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:8px 12px;cursor:pointer">${ANIMALS[k]}</button>`).join("")}</div>
         <div style="font-size:12.5px;font-weight:800;margin:6px 0">😀 이모지</div>

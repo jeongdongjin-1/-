@@ -3800,40 +3800,43 @@
   }
   /* 목소리 지문(보이스프린트) 영구 저장 — 같은 목소리 = 같은 닉네임 (화자N 형식 대신 친근한 이름) */
   const VOICE_NAMES = ["라임", "코코", "민트", "모카", "바닐라", "체리", "망고", "자몽", "보리", "쑥떡", "두유", "단팥", "유자", "살구", "호두", "밤톨", "감자", "고구마", "대추", "연두"];
-  let vcVoiceprints = null, vpSaveT = null;
-  function loadVoiceprints() { if (vcVoiceprints) return; try { vcVoiceprints = JSON.parse(localStorage.getItem("voiceprints") || "[]"); } catch (e) { vcVoiceprints = []; } if (!Array.isArray(vcVoiceprints)) vcVoiceprints = []; }
-  function saveVoiceprintsSoon() { if (vpSaveT) return; vpSaveT = setTimeout(() => { vpSaveT = null; try { localStorage.setItem("voiceprints", JSON.stringify(vcVoiceprints.slice(-60))); } catch (e) {} }, 1500); }
+  let vcVoiceprints = null, vpSaveT = null, vcLastVp = null;
+  function loadVoiceprints() { if (vcVoiceprints) return; try { vcVoiceprints = JSON.parse(localStorage.getItem("voiceprints2") || "[]"); } catch (e) { vcVoiceprints = []; } if (!Array.isArray(vcVoiceprints)) vcVoiceprints = []; }
+  function saveVoiceprintsSoon() { if (vpSaveT) return; vpSaveT = setTimeout(() => { vpSaveT = null; try { localStorage.setItem("voiceprints2", JSON.stringify(vcVoiceprints.slice(-40))); } catch (e) {} }, 1200); }
   function nextVoiceNick() { const used = new Set(vcVoiceprints.map((v) => v.nick)); for (const n of VOICE_NAMES) if (!used.has(n)) return n; return VOICE_NAMES[vcVoiceprints.length % VOICE_NAMES.length] + (Math.floor(vcVoiceprints.length / VOICE_NAMES.length) + 1); }
-  // 성별은 누적 평균 피치로 결정 + 경계구간(158~178Hz)은 기존 성별 유지 → 깜빡임 방지
-  function genderFromPitch(p, prev) { if (!p) return prev || "m"; if (p < 158) return "m"; if (p > 178) return "f"; return prev || (p < 168 ? "m" : "f"); }
-  let vcLastVp = null; // 직전 화자(연속성 유지용)
+  // 피어슨 상관 — 같은 사람 MFCC는 변동이 커도 상관이 높게 유지(코사인보다 견고)
+  function corr(a, b) { const n = Math.min(a.length, b.length); if (n < 2) return 0; let ma = 0, mb = 0; for (let i = 0; i < n; i++) { ma += a[i]; mb += b[i]; } ma /= n; mb /= n; let num = 0, da = 0, db = 0; for (let i = 0; i < n; i++) { const x = a[i] - ma, y = b[i] - mb; num += x * y; da += x * x; db += y * y; } return num / (Math.sqrt(da * db) || 1); }
+  function median(a) { if (!a.length) return 0; const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; }
+  // 성별: 누적 피치 중앙값으로 결정, 3회 이상이면 잠가서(lock) 절대 안 바뀜
+  function genderFromMedian(pitches, prev) { const m = median(pitches || []); if (!m) return prev || "m"; if (m < 160) return "m"; if (m > 176) return "f"; return prev || (m < 168 ? "m" : "f"); }
+  function updateVp(vp, pitch, mfcc) {
+    if (mfcc && mfcc.length > 3) { if (vp.mfcc) { for (let i = 0; i < mfcc.length; i++) vp.mfcc[i] = vp.mfcc[i] * 0.9 + mfcc[i] * 0.1; } else vp.mfcc = mfcc.slice(); } // 아주 천천히 갱신 → 지문 안정
+    if (pitch) { vp.pitch = vp.pitch ? vp.pitch * 0.85 + pitch * 0.15 : pitch; (vp.pitches = vp.pitches || []).push(pitch); if (vp.pitches.length > 15) vp.pitches.shift(); }
+    if (!vp.locked) { vp.gender = genderFromMedian(vp.pitches, vp.gender); if ((vp.n || 1) >= 3) vp.locked = true; } // 3회 이상 → 성별 고정
+    vp.n = (vp.n || 1) + 1; vcLastVp = vp; saveVoiceprintsSoon(); return vp;
+  }
+  // 한 명일 때는 거의 무조건 같은 화자로 유지(과분리 방지), 정말 다른 목소리만 새로 생성
   function assignSpeaker(pitch, mfcc, centroid, frames) {
     loadVoiceprints();
-    if (mfcc && mfcc.length > 3) {
-      const key = mfcc.slice(1);
-      let best = null, bs = -1, lastSim = -1, last = vcLastVp;
-      vcVoiceprints.forEach((s) => { if (s.mfcc) { const c = cosine(s.mfcc.slice(1), key); if (c > bs) { bs = c; best = s; } if (s === last) lastSim = c; } });
-      let match = null;
-      if (best && bs >= 0.8) match = best;                                                   // 확실히 같은 음색
-      else if (last && lastSim >= 0.6) match = last;                                          // 직전 화자와 유사 → 연속성 유지
-      else if ((!frames || frames < 8) && last) match = last;                                 // 표본 부족 → 직전 화자 유지
-      else if (best && bs >= 0.68 && pitch && Math.abs((best.pitch || 0) - pitch) <= 18) match = best; // 음색 약간 + 피치 근접
-      if (match) {
-        for (let i = 0; i < mfcc.length; i++) match.mfcc[i] = match.mfcc[i] * 0.85 + mfcc[i] * 0.15; // 천천히 갱신(지문 안정)
-        if (pitch) match.pitch = match.pitch * 0.85 + pitch * 0.15;
-        match.gender = genderFromPitch(match.pitch, match.gender); match.n = (match.n || 1) + 1;
-        vcLastVp = match; saveVoiceprintsSoon(); return match;
-      }
-      const s = { nick: nextVoiceNick(), pitch: pitch || 0, mfcc: mfcc.slice(), gender: genderFromPitch(pitch), n: 1 };
-      vcVoiceprints.push(s); vcLastVp = s; saveVoiceprintsSoon(); return s;
+    const key = (mfcc && mfcc.length > 3) ? mfcc.slice(1) : null;
+    let match = null;
+    if (key) {
+      let best = null, bestC = -2;
+      vcVoiceprints.forEach((s) => { if (s.mfcc) { const c = corr(s.mfcc.slice(1), key); if (c > bestC) { bestC = c; best = s; } } });
+      const lastC = (vcLastVp && vcLastVp.mfcc) ? corr(vcLastVp.mfcc.slice(1), key) : -2;
+      if (vcLastVp && (lastC >= 0.3 || (frames && frames < 10))) match = vcLastVp;            // 직전 화자 강한 연속성
+      else if (best && bestC >= 0.4) match = best;                                            // 음색 유사
+      else if (best && bestC >= 0.15 && pitch && Math.abs((best.pitch || 0) - pitch) <= 40) match = best;
+      else if (vcLastVp && pitch && Math.abs((vcLastVp.pitch || 0) - pitch) <= 35) match = vcLastVp; // 음색 애매하면 피치로 직전 화자 유지
+      // 위 모두 실패 = 정말 다른 목소리 → 새 화자
+    } else {
+      if (vcLastVp && (!pitch || Math.abs((vcLastVp.pitch || 0) - pitch) <= 45)) match = vcLastVp;
+      else { let best = null, bd = 1e9; vcVoiceprints.forEach((s) => { const d = Math.abs((s.pitch || 0) - pitch); if (d < bd) { bd = d; best = s; } }); if (best && bd <= 40) match = best; }
     }
-    // 피치만 있을 때
-    if (!pitch) return vcLastVp; // 정보 없으면 직전 화자 유지
-    let best = null, bd = 1e9;
-    vcVoiceprints.forEach((s) => { const d = Math.abs((s.pitch || 0) - pitch); if (d < bd) { bd = d; best = s; } });
-    if ((!best || bd > 22) && vcLastVp) best = vcLastVp;
-    if (best && (Math.abs((best.pitch || 0) - pitch) <= 28)) { best.pitch = best.pitch * 0.85 + pitch * 0.15; best.gender = genderFromPitch(best.pitch, best.gender); best.n = (best.n || 1) + 1; vcLastVp = best; saveVoiceprintsSoon(); return best; }
-    const s = { nick: nextVoiceNick(), pitch, gender: genderFromPitch(pitch), n: 1 }; vcVoiceprints.push(s); vcLastVp = s; saveVoiceprintsSoon(); return s;
+    if (match) return updateVp(match, pitch, mfcc);
+    const s = { nick: nextVoiceNick(), pitch: pitch || 0, mfcc: mfcc ? mfcc.slice() : null, pitches: pitch ? [pitch] : [], gender: "m", locked: false, n: 1 };
+    s.gender = genderFromMedian(s.pitches, null);
+    vcVoiceprints.push(s); vcLastVp = s; saveVoiceprintsSoon(); return s;
   }
   // 말한 내용(음성 인식 최종 결과)을 채팅에 자동 입력 + 브로드캐스트 — 목소리 지문 닉네임 사용
   function meetVoiceMsg(text) {
@@ -3841,7 +3844,7 @@
     const used = vcMfccBuf.slice(-40), mfcc = avgVec(used), frames = used.length, pitch = recentPitch(), centroid = recentAvg(vcCentBuf);
     const sp = assignSpeaker(pitch, mfcc, centroid, frames);
     const nick = sp ? sp.nick : meetNick(); // 목소리로 식별한 닉네임
-    const g = sp ? sp.gender : meetGender(); // 톤 기반 색(남=파랑/여=빨강)
+    const g = sp ? sp.gender : meetGender(); // 성별 색(남=파랑/여=빨강)
     vcPitchBuf = []; vcMfccBuf = []; vcCentBuf = []; // 다음 발화 준비
     meetChatAdd(nick, text, true, true, g);
     rtcSend({ t: "chat", from: myId, nick, text, voice: true, g });

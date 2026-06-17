@@ -3358,6 +3358,27 @@
   /* ===== 가상화 아바타 (카메라 대신 캔버스 송출 + 음성 반응) ===== */
   let vcAvatarOn = false, vcAvatarKind = null, vcAvatarVal = null, vcAvatarImg = null;
   let vcAvCanvas = null, vcAvStream = null, vcAvTrack = null, vcAvRAF = 0, vcAvAn = null, vcAvData = null, vcAvT = 0, vcAvVideo = null;
+  let vcFd = null, vcFdReady = null, vcFdTimer = null, vcFdBusy = false, vcFaceTarget = null, vcFace = null; // 얼굴 추적
+  function ensureFaceDetector() {
+    if (vcFd) return Promise.resolve(vcFd);
+    if (vcFdReady) return vcFdReady;
+    vcFdReady = (async () => {
+      try {
+        await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js");
+        if (!window.FaceDetection) return null;
+        const fd = new window.FaceDetection({ locateFile: (f) => "https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/" + f });
+        fd.setOptions({ model: "short", minDetectionConfidence: 0.5 });
+        fd.onResults((res) => { vcFdBusy = false; const d = res.detections && res.detections[0]; if (d && d.boundingBox) { const b = d.boundingBox; vcFaceTarget = { xc: b.xCenter, yc: b.yCenter, w: b.width, h: b.height }; } });
+        vcFd = fd; return fd;
+      } catch (e) { return null; }
+    })();
+    return vcFdReady;
+  }
+  function faceTick() {
+    if (!vcAvatarOn || !vcFd || vcFdBusy || !vcCamOn || !vcAvVideo || !vcAvVideo.videoWidth) return;
+    vcFdBusy = true;
+    try { const p = vcFd.send({ image: vcAvVideo }); if (p && p.catch) p.catch(() => { vcFdBusy = false; }); } catch (e) { vcFdBusy = false; }
+  }
   function avatarLevel() {
     if (!vcAvAn || !vcMicOn) return 0;
     vcAvAn.getByteTimeDomainData(vcAvData);
@@ -3413,13 +3434,19 @@
     const cv = vcAvCanvas, cx = cv.getContext("2d"), W = cv.width, H = cv.height;
     vcAvT += 0.05; const lvl = avatarLevel();
     // 배경: 실제 카메라 영상 유지(사람·배경 그대로). 캠이 꺼졌으면 그라데이션.
+    let fx = W / 2, fy = H * 0.40, avScale = 0.78; // 폴백(고정 위치)
     if (vcCamOn && vcAvVideo && vcAvVideo.videoWidth) {
-      const vw = vcAvVideo.videoWidth, vh = vcAvVideo.videoHeight, sc = Math.max(W / vw, H / vh), dw = vw * sc, dh = vh * sc;
-      try { cx.drawImage(vcAvVideo, (W - dw) / 2, (H - dh) / 2, dw, dh); } catch (e) {}
+      const vw = vcAvVideo.videoWidth, vh = vcAvVideo.videoHeight, sc = Math.max(W / vw, H / vh), dw = vw * sc, dh = vh * sc, ox = (W - dw) / 2, oy = (H - dh) / 2;
+      try { cx.drawImage(vcAvVideo, ox, oy, dw, dh); } catch (e) {}
+      if (vcFaceTarget) { // 검출된 얼굴 위치/크기로 부드럽게 이동
+        const tx = ox + vcFaceTarget.xc * dw, ty = oy + vcFaceTarget.yc * dh, ts = Math.max(0.3, Math.min(2.4, (vcFaceTarget.w * dw * 1.7) / 200));
+        if (!vcFace) vcFace = { x: tx, y: ty, s: ts }; else { vcFace.x += (tx - vcFace.x) * 0.3; vcFace.y += (ty - vcFace.y) * 0.3; vcFace.s += (ts - vcFace.s) * 0.3; }
+        fx = vcFace.x; fy = vcFace.y; avScale = vcFace.s;
+      }
     } else { const g = cx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#1b2a4a"); g.addColorStop(1, "#0b1020"); cx.fillStyle = g; cx.fillRect(0, 0, W, H); }
-    // 아바타(가상화 이미지)는 사람 얼굴 위치(상단 중앙)에만 오버레이
-    const bob = Math.sin(vcAvT) * 5 - lvl * 12, scale = 0.78 * (1 + lvl * 0.13);
-    cx.save(); cx.translate(W / 2, H * 0.40 + bob); cx.scale(scale, scale);
+    // 아바타(가상화 이미지)는 추적된 얼굴 위에 오버레이
+    const bob = Math.sin(vcAvT) * 5 - lvl * 12, scale = avScale * (1 + lvl * 0.13);
+    cx.save(); cx.translate(fx, fy + bob); cx.scale(scale, scale);
     if (vcAvatarKind === "animal") {
       drawCuteAnimal(cx, vcAvatarVal, lvl);
     } else if (vcAvatarKind === "img" && vcAvatarImg) {
@@ -3448,6 +3475,7 @@
     vcAvCanvas.width = 480; vcAvCanvas.height = 360;
     if (!vcAvVideo) { vcAvVideo = document.createElement("video"); vcAvVideo.muted = true; vcAvVideo.playsInline = true; vcAvVideo.autoplay = true; }
     if (vcAvVideo.srcObject !== vcStream) { vcAvVideo.srcObject = vcStream; try { vcAvVideo.play(); } catch (e) {} } // 배경용 카메라 프레임 소스
+    ensureFaceDetector().then((fd) => { if (fd && vcAvatarOn && !vcFdTimer) { vcFdTimer = setInterval(faceTick, 130); meetChatSys("🙂 얼굴 추적이 켜졌습니다 — 아바타가 얼굴을 따라갑니다."); } }); // 얼굴 추적 시작
     try { if (!vcAudioCtx) vcAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); if (!vcAvAn) { const src = vcAudioCtx.createMediaStreamSource(vcStream); vcAvAn = vcAudioCtx.createAnalyser(); vcAvAn.fftSize = 512; src.connect(vcAvAn); vcAvData = new Uint8Array(vcAvAn.fftSize); } } catch (e) {}
     if (!vcAvRAF) avatarDraw();
     if (!vcAvStream) { vcAvStream = vcAvCanvas.captureStream(25); vcAvTrack = vcAvStream.getVideoTracks()[0]; }
@@ -3462,6 +3490,7 @@
     Object.values(vcPeers).forEach((p) => { const s = p.pc.getSenders().find((x) => x.track && x.track.kind === "video"); if (s && cam) s.replaceTrack(cam); });
     const lt = document.getElementById("vtile-" + myId); if (lt) lt.querySelector("video").srcObject = vcStream;
     if (vcAvRAF) { cancelAnimationFrame(vcAvRAF); vcAvRAF = 0; }
+    if (vcFdTimer) { clearInterval(vcFdTimer); vcFdTimer = null; } vcFaceTarget = null; vcFace = null;
     vcAvatarOn = false; $("meetAvatar").classList.remove("live");
     meetChatSys("🦸 아바타를 끄고 카메라로 돌아왔습니다.");
   }
@@ -3469,6 +3498,7 @@
     if (vcAvRAF) { cancelAnimationFrame(vcAvRAF); vcAvRAF = 0; }
     if (vcAvStream) { try { vcAvStream.getTracks().forEach((t) => t.stop()); } catch (e) {} }
     if (vcAvVideo) { try { vcAvVideo.pause(); vcAvVideo.srcObject = null; } catch (e) {} vcAvVideo = null; }
+    if (vcFdTimer) { clearInterval(vcFdTimer); vcFdTimer = null; } vcFaceTarget = null; vcFace = null;
     vcAvStream = null; vcAvTrack = null; vcAvAn = null; vcAvatarOn = false; vcAvatarImg = null;
   }
   function openAvatarPicker() {
@@ -3478,7 +3508,7 @@
     const body = $("modalBody"); body.style.background = "var(--card)";
     const emojis = ["🙂", "😎", "🐱", "🐶", "🦊", "🐼", "🐵", "🤖", "👽", "🦸", "🧑‍🚀", "👻", "🐯", "🦁", "🐸", "🐰"];
     body.innerHTML = `<div style="padding:16px">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:8px">실제 카메라 배경은 그대로 두고, 사람(얼굴) 위에만 아바타가 올라갑니다. 말하면 입이 움직여요.</p>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:8px">실제 카메라 배경은 그대로 두고, 아바타가 <b>얼굴을 추적</b>하며 따라다닙니다. 말하면 입이 움직여요.</p>
         <div style="font-size:12.5px;font-weight:800;margin:6px 0">🐾 귀여운 동물 (직접 그린 캐릭터)</div>
         <div id="avAnimal" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${Object.keys(ANIMALS).map((k) => `<button data-animal="${k}" style="font-size:13px;font-weight:700;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:8px 12px;cursor:pointer">${ANIMALS[k]}</button>`).join("")}</div>
         <div style="font-size:12.5px;font-weight:800;margin:6px 0">😀 이모지</div>

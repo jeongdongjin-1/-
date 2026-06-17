@@ -985,6 +985,7 @@
             <button id="meetStt" title="음성 자막 (말하면 채팅에 자동 입력)" class="meet-cc off">CC</button>
             <button id="meetTrans" title="영어 자동 번역 (채팅·자막을 영어로)" class="meet-cc off">EN</button>
             <button id="meetSummary" title="지금 요약하기">📝</button>
+            <button id="meetLog" title="채팅 기록(하루 단위 자동 저장)">📁</button>
             <button id="meetChatToggle" title="채팅" class="meet-chat-toggle">💬</button>
             <button id="meetLeave">🚪 나가기</button>
             <span id="meetTimer" class="meet-count"></span>
@@ -2642,70 +2643,71 @@
     return true;
   }
 
-  /* ===== 채팅 기록 하루 단위 자동 저장 + 요약 ===== */
-  let logDate = null, logArr = null, logIds = null;
+  /* ===== 채팅 기록 하루 단위 자동 저장 + 요약 (prefix별: chatlog=토론방 / meetlog=화상회의) ===== */
+  const _logState = {}; // prefix -> {date, arr, ids}
   function dayOf(ts) { const d = new Date(ts || Date.now()); return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
-  function chatLogLoad(date) { try { return JSON.parse(localStorage.getItem("chatlog:" + date) || "[]"); } catch (e) { return []; } }
-  function chatLogAppend(m, ch) {
-    if (!m || m.sys || !m.text || !m.id) return; // 일반 텍스트 메시지만 (시스템·도네이션 제외)
-    const day = dayOf(m.t);
-    if (day !== logDate) { logDate = day; logArr = chatLogLoad(day); logIds = new Set(logArr.map((x) => x.id)); }
-    if (logIds.has(m.id)) return;
-    logIds.add(m.id);
-    logArr.push({ id: m.id, t: m.t || Date.now(), nick: m.nick || "익명", text: m.text, ch: ch });
-    if (logArr.length > 3000) { logArr = logArr.slice(-3000); logIds = new Set(logArr.map((x) => x.id)); }
-    try { localStorage.setItem("chatlog:" + day, JSON.stringify(logArr)); } catch (e) {}
+  function logLoad(pf, date) { try { return JSON.parse(localStorage.getItem(pf + ":" + date) || "[]"); } catch (e) { return []; } }
+  function logAppend(pf, m, ch) {
+    if (!m || m.sys || !m.text || !m.id) return; // 일반 텍스트 메시지만
+    const day = dayOf(m.t); let st = _logState[pf];
+    if (!st || st.date !== day) { const arr = logLoad(pf, day); st = { date: day, arr, ids: new Set(arr.map((x) => x.id)) }; _logState[pf] = st; }
+    if (st.ids.has(m.id)) return;
+    st.ids.add(m.id); st.arr.push({ id: m.id, t: m.t || Date.now(), nick: m.nick || "익명", text: m.text, ch: ch });
+    if (st.arr.length > 3000) { st.arr = st.arr.slice(-3000); st.ids = new Set(st.arr.map((x) => x.id)); }
+    try { localStorage.setItem(pf + ":" + day, JSON.stringify(st.arr)); } catch (e) {}
   }
-  function chatLogDays() { const a = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf("chatlog:") === 0) a.push(k.slice(8)); } return a.sort().reverse(); }
-  function chatLogPrune(keep) { chatLogDays().slice(keep).forEach((d) => { localStorage.removeItem("chatlog:" + d); localStorage.removeItem("chatlogsum:" + d); }); }
-  async function chatLogSummarize(date, force) {
-    const cached = localStorage.getItem("chatlogsum:" + date);
+  function logDays(pf) { const a = []; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k && k.indexOf(pf + ":") === 0) a.push(k.slice(pf.length + 1)); } return a.sort().reverse(); }
+  function logPrune(pf, keep) { logDays(pf).slice(keep).forEach((d) => { localStorage.removeItem(pf + ":" + d); localStorage.removeItem(pf + "sum:" + d); }); }
+  async function logSummarize(pf, date, force) {
+    const cached = localStorage.getItem(pf + "sum:" + date);
     if (cached && !force) return cached;
-    const arr = chatLogLoad(date);
-    if (arr.length < 2) { const s = "대화가 적어 요약할 내용이 없습니다."; try { localStorage.setItem("chatlogsum:" + date, s); } catch (e) {} return s; }
+    const arr = logLoad(pf, date);
+    if (arr.length < 2) { const s = "대화가 적어 요약할 내용이 없습니다."; try { localStorage.setItem(pf + "sum:" + date, s); } catch (e) {} return s; }
     const lines = arr.map((m) => `${m.nick}: ${m.text}`);
+    const what = pf === "meetlog" ? "화상회의" : "토론방";
     let summary;
     try {
-      if (geminiKeyList().length) summary = await callGemini("당신은 채팅 기록 요약 비서입니다. 아래 하루치 토론방 대화를 한국어로 요약하세요. 형식: '핵심 요약' 2~3문장, '주요 화제' 불릿 몇 개. 군더더기 없이 간결하게.", lines.slice(-400).join("\n"));
+      if (geminiKeyList().length) summary = await callGemini("당신은 채팅 기록 요약 비서입니다. 아래 하루치 " + what + " 대화를 한국어로 요약하세요. 형식: '핵심 요약' 2~3문장, '주요 화제' 불릿 몇 개. 군더더기 없이 간결하게.", lines.slice(-400).join("\n"));
       else summary = localSummary(lines);
     } catch (e) { summary = localSummary(lines); }
-    try { localStorage.setItem("chatlogsum:" + date, summary); } catch (e) {}
+    try { localStorage.setItem(pf + "sum:" + date, summary); } catch (e) {}
     return summary;
   }
-  function chatLogAuto() { // 입장 시: 오래된 기록 정리 + 어제 기록 자동 요약
-    chatLogPrune(30);
-    const yd = dayOf(Date.now() - 86400000);
-    if (localStorage.getItem("chatlog:" + yd) && !localStorage.getItem("chatlogsum:" + yd)) chatLogSummarize(yd, false);
-  }
-  function chatLogDownload(date) {
-    const arr = chatLogLoad(date); if (!arr.length) return;
-    const sum = localStorage.getItem("chatlogsum:" + date) || "(요약 없음 — 요약 생성 버튼을 눌러 만들 수 있어요)";
+  function logAuto(pf) { logPrune(pf, 30); const yd = dayOf(Date.now() - 86400000); if (localStorage.getItem(pf + ":" + yd) && !localStorage.getItem(pf + "sum:" + yd)) logSummarize(pf, yd, false); }
+  function logDownload(pf, date) {
+    const arr = logLoad(pf, date); if (!arr.length) return;
+    const sum = localStorage.getItem(pf + "sum:" + date) || "(요약 없음 — 요약 생성 버튼을 눌러 만들 수 있어요)";
+    const what = pf === "meetlog" ? "화상회의" : "토론방";
     const lines = arr.map((m) => `[${new Date(m.t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}] ${m.nick}: ${m.text}`);
-    const txt = `📁 토론방 채팅 기록 — ${date}\n메시지 ${arr.length}개\n\n[요약]\n${sum}\n\n[대화 전문]\n${lines.join("\n")}\n`;
+    const txt = `📁 ${what} 채팅 기록 — ${date}\n메시지 ${arr.length}개\n\n[요약]\n${sum}\n\n[대화 전문]\n${lines.join("\n")}\n`;
     const url = URL.createObjectURL(new Blob([txt], { type: "text/plain;charset=utf-8" }));
-    const a = document.createElement("a"); a.href = url; a.download = "채팅기록_" + date + ".txt"; a.click();
+    const a = document.createElement("a"); a.href = url; a.download = what + "기록_" + date + ".txt"; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 3000);
   }
-  function chatLogAction(act, date) {
-    if (act === "txt") chatLogDownload(date);
-    else if (act === "del") { if (confirm(date + " 기록과 요약을 삭제할까요?")) { localStorage.removeItem("chatlog:" + date); localStorage.removeItem("chatlogsum:" + date); openChatLog(); } }
-    else if (act === "sum") { const el = $("clsum-" + date); if (el) el.textContent = "요약 생성 중…"; chatLogSummarize(date, true).then((s) => { const e2 = $("clsum-" + date); if (e2) e2.textContent = s; }); }
+  function logAction(pf, act, date) {
+    if (act === "txt") logDownload(pf, date);
+    else if (act === "del") { if (confirm(date + " 기록과 요약을 삭제할까요?")) { localStorage.removeItem(pf + ":" + date); localStorage.removeItem(pf + "sum:" + date); openLogModal(pf); } }
+    else if (act === "sum") { const el = $("clsum-" + date); if (el) el.textContent = "요약 생성 중…"; logSummarize(pf, date, true).then((s) => { const e2 = $("clsum-" + date); if (e2) e2.textContent = s; }); }
   }
-  function openChatLog() {
-    const days = chatLogDays();
-    $("modalTitle").textContent = "📁 채팅 기록 (하루 단위 자동 저장)";
+  function openLogModal(pf) {
+    const days = logDays(pf); const what = pf === "meetlog" ? "화상회의" : "토론방";
+    $("modalTitle").textContent = "📁 " + what + " 채팅 기록 (하루 단위 자동 저장)";
     $("modalOpen").style.display = "none";
     const body = $("modalBody"); body.style.background = "var(--card)";
-    if (!days.length) { body.innerHTML = `<div style="padding:26px;text-align:center;color:var(--muted)">아직 저장된 기록이 없습니다.<br>토론방에서 대화하면 하루 단위로 자동 저장됩니다.</div>`; $("mediaModal").style.display = "flex"; return; }
+    if (!days.length) { body.innerHTML = `<div style="padding:26px;text-align:center;color:var(--muted)">아직 저장된 기록이 없습니다.<br>${what}에서 대화하면 하루 단위로 자동 저장됩니다.</div>`; $("mediaModal").style.display = "flex"; return; }
     body.innerHTML = `<div class="cl-list">` + days.map((d) => {
-      const arr = chatLogLoad(d); const sum = localStorage.getItem("chatlogsum:" + d);
+      const arr = logLoad(pf, d); const sum = localStorage.getItem(pf + "sum:" + d);
       return `<div class="cl-day"><div class="cl-head"><b>${d}</b> <span style="color:var(--muted)">· ${arr.length}개 메시지</span></div>` +
         `<div class="cl-sum" id="clsum-${d}">${sum ? esc(sum) : '<span style="color:var(--muted)">요약 아직 없음 — 아래 ‘요약 생성’</span>'}</div>` +
         `<div class="cl-acts"><button data-act="sum" data-date="${d}">📝 요약 생성</button><button data-act="txt" data-date="${d}">⬇ TXT 저장</button><button data-act="del" data-date="${d}">🗑 삭제</button></div></div>`;
     }).join("") + `</div>`;
     $("mediaModal").style.display = "flex";
-    body.querySelectorAll(".cl-acts button").forEach((b) => { b.onclick = () => chatLogAction(b.dataset.act, b.dataset.date); });
+    body.querySelectorAll(".cl-acts button").forEach((b) => { b.onclick = () => logAction(pf, b.dataset.act, b.dataset.date); });
   }
+  // 토론방 래퍼(기존 호출 유지)
+  function chatLogAppend(m, ch) { logAppend("chatlog", m, ch); }
+  function chatLogAuto() { logAuto("chatlog"); }
+  function openChatLog() { openLogModal("chatlog"); }
 
   function publishSnapshot(ch) {
     if (!mqc || !mqc.connected) return;
@@ -3137,7 +3139,7 @@
   let vcTransOn = true, mcSeq = 0; const transCache = {}; // 화상회의 자동 번역 기본 ON
   let vcAudioCtx = null, vcMeters = {}, vcMeterRAF = 0;
   let vcDocLast = 0, vcDocTimer = null;
-  let vcScreen = null, vcScreenTrack = null; const vcMute = {}; // 화면공유 / 참가자 음소거 상태
+  let vcScreen = null, vcScreenTrack = null; const vcMute = {}; let meetLogSeq = 0; // 화면공유 / 참가자 음소거 상태 / 기록 시퀀스
   const meetNick = () => ($("meetNick").value.trim() || "익명").slice(0, 20);
   function rtcSend(m) { if (vcMqc && vcMqc.connected) vcMqc.publish(vcTopic, JSON.stringify(m), { qos: 0 }); }
 
@@ -3427,6 +3429,7 @@
     if (vcTransOn || voice) meetShowTrans(id, text);
     if (voice) meetCaptionVoice(nick, text, gender); // 송출 화면 밑 자막
     meetMaybeFx(text); // 축하 이모지면 폭죽
+    logAppend("meetlog", { id: "m" + Date.now() + "-" + (meetLogSeq++), t: Date.now(), nick: nick, text: text }, voice ? "voice" : "chat"); // 하루 단위 기록 자동 저장
     return id;
   }
 
@@ -3763,6 +3766,7 @@
     meetChatSys("🎉 환영합니다 🎊");
     meetChatSys("🖱 참가자 화면을 드래그하면 위치를 바꿀 수 있습니다. (방장만 ⛔강퇴 가능)");
     meetCelebrate(); // 입장 축하 폭죽
+    logAuto("meetlog"); // 오래된 회의 기록 정리 + 어제 기록 자동 요약
     vcTile(myId, "나 (" + meetNick() + ")", vcStream, true);
     startPitchTracking(); // 목소리 톤 분석(화자 구분·성별 추정)
     // 자동 요약 타이머
@@ -3881,6 +3885,7 @@
     $("meetStt").onclick = meetSttToggle;
     $("meetTrans").onclick = meetTransToggle;
     $("meetSummary").onclick = () => meetSummarize(false);
+    $("meetLog").onclick = () => openLogModal("meetlog");
     $("meetLeave").onclick = meetLeave;
     $("meetChatForm").addEventListener("submit", (e) => { e.preventDefault(); $("meetEmojiPop").style.display = "none"; meetChatSend(); });
     $("meetChatToggle").onclick = () => $("meetChat").classList.toggle("hidden");

@@ -3528,6 +3528,44 @@
     cx.fillStyle = "#f0c9a0"; cx.fillRect(fx - hr * 0.27, fy + hr * 0.5, hr * 0.54, hr * 0.85); // 목
     cx.restore();
   }
+  /* 인물 캐리커처 아바타 (사진이 아닌 헤어·안경 특징을 살린 만화풍) */
+  const PERSONS = {
+    trump: { label: "트럼프", skin: "#f0c08a", hair: "#e9c64a", hairStyle: "swept", glasses: false },
+    biden: { label: "바이든", skin: "#eccaa8", hair: "#efefef", hairStyle: "short", glasses: false, brow: "#ccc" },
+    leejm: { label: "이재명", skin: "#e7b98f", hair: "#222222", hairStyle: "side", glasses: true },
+    moon: { label: "문재인", skin: "#e8c0a0", hair: "#d8d8d8", hairStyle: "short", glasses: true, brow: "#999" },
+    kimdj: { label: "김대중", skin: "#e6c2a2", hair: "#cfcfcf", hairStyle: "side", glasses: true, brow: "#aaa" },
+    rohmh: { label: "노무현", skin: "#e7bd95", hair: "#3a3a3a", hairStyle: "short", glasses: true },
+    leemb: { label: "이명박", skin: "#e7bd95", hair: "#2a2a2a", hairStyle: "bald", glasses: true },
+    parkgh: { label: "박근혜", skin: "#eecbb0", hair: "#2a2a2a", hairStyle: "updo", glasses: false },
+  };
+  function drawPersonAvatar(cx, id, lvl, blink) {
+    const P = PERSONS[id] || {}; const skin = P.skin || "#eec6a0", hair = P.hair || "#333", R = 100, TAU = Math.PI * 2;
+    [-1, 1].forEach((s) => { cx.beginPath(); cx.ellipse(s * R * 0.78, 8, 14, 20, 0, 0, TAU); cx.fillStyle = skin; cx.fill(); }); // 귀
+    cx.beginPath(); cx.ellipse(0, 6, R * 0.8, R * 0.95, 0, 0, TAU); cx.fillStyle = skin; cx.fill(); // 얼굴
+    cx.fillStyle = hair; // 헤어
+    if (P.hairStyle === "updo") {
+      cx.beginPath(); cx.ellipse(0, -R * 0.5, R * 0.86, R * 0.5, 0, Math.PI, TAU); cx.fill();
+      cx.beginPath(); cx.ellipse(0, -R * 0.88, R * 0.4, R * 0.3, 0, 0, TAU); cx.fill();
+      [-1, 1].forEach((s) => { cx.beginPath(); cx.ellipse(s * R * 0.72, -R * 0.05, 16, 44, 0, 0, TAU); cx.fill(); });
+    } else if (P.hairStyle === "swept") {
+      cx.beginPath(); cx.moveTo(-R * 0.85, -R * 0.15); cx.quadraticCurveTo(-R * 0.55, -R * 0.95, R * 0.25, -R * 0.85); cx.quadraticCurveTo(R * 1.02, -R * 0.8, R * 0.9, -R * 0.2); cx.quadraticCurveTo(R * 0.3, -R * 0.55, -R * 0.85, -R * 0.15); cx.closePath(); cx.fill();
+    } else if (P.hairStyle === "side") {
+      cx.beginPath(); cx.ellipse(0, -R * 0.48, R * 0.85, R * 0.5, 0, Math.PI, TAU); cx.fill();
+      cx.fillStyle = skin; cx.beginPath(); cx.ellipse(-R * 0.22, -R * 0.5, R * 0.16, R * 0.16, 0, Math.PI, TAU); cx.fill();
+    } else if (P.hairStyle === "bald") {
+      [-1, 1].forEach((s) => { cx.beginPath(); cx.ellipse(s * R * 0.74, -R * 0.02, 14, 30, 0, 0, TAU); cx.fill(); });
+      cx.beginPath(); cx.ellipse(0, -R * 0.4, R * 0.8, R * 0.26, 0, Math.PI, TAU); cx.fill();
+    } else { cx.beginPath(); cx.ellipse(0, -R * 0.5, R * 0.86, R * 0.54, 0, Math.PI, TAU); cx.fill(); }
+    cx.strokeStyle = P.brow || hair; cx.lineWidth = 6; [-1, 1].forEach((s) => { cx.beginPath(); cx.moveTo(s * 18 - 14, -20); cx.lineTo(s * 18 + 14, -24); cx.stroke(); }); // 눈썹
+    const eyeOpen = Math.max(0.08, 1 - (blink || 0));
+    cx.fillStyle = "#3a2a1a"; [-1, 1].forEach((s) => { cx.beginPath(); cx.ellipse(s * 32, -2, 9, 11 * eyeOpen, 0, 0, TAU); cx.fill(); });
+    cx.fillStyle = "#fff"; [-1, 1].forEach((s) => { cx.beginPath(); cx.ellipse(s * 32 + 2, -5, 3, 3 * eyeOpen, 0, 0, TAU); cx.fill(); });
+    if (P.glasses) { cx.strokeStyle = "#222"; cx.lineWidth = 4; [-1, 1].forEach((s) => { cx.beginPath(); cx.ellipse(s * 32, -2, 21, 16, 0, 0, TAU); cx.stroke(); }); cx.beginPath(); cx.moveTo(-11, -2); cx.lineTo(11, -2); cx.stroke(); } // 안경
+    cx.strokeStyle = "rgba(120,90,60,.55)"; cx.lineWidth = 3; cx.beginPath(); cx.moveTo(0, 4); cx.lineTo(-6, 24); cx.lineTo(6, 24); cx.stroke(); // 코
+    const open = 3 + lvl * 26; cx.strokeStyle = "#7a3b3b"; cx.lineWidth = 3; cx.beginPath(); cx.ellipse(0, 46, 18, open, 0, 0, Math.PI); cx.stroke(); // 입
+    if (lvl > 0.08) { cx.fillStyle = "#9b3b3b"; cx.beginPath(); cx.ellipse(0, 48, 12, open * 0.7, 0, 0, TAU); cx.fill(); }
+  }
   function avatarDraw() {
     vcAvRAF = requestAnimationFrame(avatarDraw);
     const cv = vcAvCanvas, cx = cv.getContext("2d"), W = cv.width, H = cv.height;
@@ -3551,7 +3589,9 @@
     const bob = Math.sin(vcAvT) * 4 - lvl * 12, scale = avScale * breath * (1 + lvl * 0.12);
     drawBust(cx, fx, fy + bob * 0.4, 100 * avScale, H); // 머리카락·얼굴 아래 어깨(상체) — 머리보다 먼저 그림
     cx.save(); cx.translate(fx, fy + bob); cx.rotate(roll + idleSway); cx.scale(scale, scale);
-    if (vcAvatarKind === "animal") {
+    if (vcAvatarKind === "person") {
+      drawPersonAvatar(cx, vcAvatarVal, lvl, blink);
+    } else if (vcAvatarKind === "animal") {
       drawCuteAnimal(cx, vcAvatarVal, lvl, blink);
     } else if (vcAvatarKind === "img" && vcAvatarImg) {
       const RX = 110, RY = 142; cx.save(); cx.beginPath(); cx.ellipse(0, 0, RX, RY, 0, 0, 7); cx.closePath(); cx.clip();
@@ -3615,6 +3655,9 @@
         <p style="font-size:13px;color:var(--muted);margin-bottom:8px">실제 카메라 배경은 그대로 두고, 아바타가 <b>얼굴을 추적</b>하며 따라다닙니다. 말하면 입이 움직여요.</p>
         <div style="font-size:12.5px;font-weight:800;margin:6px 0">🐾 귀여운 동물 (직접 그린 캐릭터)</div>
         <div id="avAnimal" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${Object.keys(ANIMALS).map((k) => `<button data-animal="${k}" style="font-size:13px;font-weight:700;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:8px 12px;cursor:pointer">${ANIMALS[k]}</button>`).join("")}</div>
+        <div style="font-size:12.5px;font-weight:800;margin:6px 0">🧑 인물 (캐리커처)</div>
+        <div id="avPerson" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">${Object.keys(PERSONS).map((k) => `<button data-person="${k}" style="font-size:13px;font-weight:700;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:8px 12px;cursor:pointer">${PERSONS[k].label}</button>`).join("")}</div>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:12px">※ 실제 사진이 아닌 헤어·안경 특징을 살린 만화풍 캐릭터입니다. 정확한 얼굴은 ‘내 이미지 업로드’를 쓰세요.</p>
         <div style="font-size:12.5px;font-weight:800;margin:6px 0">😀 이모지</div>
         <div id="avEmoji" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${emojis.map((e) => `<button data-emoji="${e}" style="font-size:28px;border:1px solid var(--border);background:var(--bg);border-radius:10px;padding:6px 8px;cursor:pointer">${e}</button>`).join("")}</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -3625,6 +3668,7 @@
       </div>`;
     $("mediaModal").style.display = "flex";
     body.querySelectorAll("#avAnimal button").forEach((b) => { b.onclick = () => { avatarStart("animal", b.dataset.animal, null); closeMedia(); }; });
+    body.querySelectorAll("#avPerson button").forEach((b) => { b.onclick = () => { avatarStart("person", b.dataset.person, null); closeMedia(); }; });
     body.querySelectorAll("#avEmoji button").forEach((b) => { b.onclick = () => { avatarStart("emoji", b.dataset.emoji, null); closeMedia(); }; });
     $("avFile").onchange = (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { const img = new Image(); img.onload = () => { avatarStart("img", null, img); closeMedia(); }; img.src = r.result; }; r.readAsDataURL(f); };
     $("avOff").onclick = () => { avatarStop(); closeMedia(); };

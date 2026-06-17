@@ -474,6 +474,8 @@
   .mc-msg { font-size:13px; line-height:1.45; word-break:break-word; }
   .mc-msg .mc-nick { font-weight:700; }
   .mc-msg .mc-time { font-size:10.5px; color:var(--muted); margin-left:6px; font-weight:400; }
+  .mc-msg.g-m .mc-nick, .mc-msg.g-m .mc-bubble { color:#1b64da; }
+  .mc-msg.g-f .mc-nick, .mc-msg.g-f .mc-bubble { color:#f04452; }
   .mc-msg.mine { text-align:right; }
   .mc-msg.mine .mc-bubble { background:var(--accent); color:var(--on-accent); }
   .mc-bubble { display:inline-block; background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:5px 9px; margin-top:2px; max-width:90%; }
@@ -927,6 +929,15 @@
         <p style="font-size:14px;color:var(--muted)">카메라·마이크로 다른 접속자와 실시간 화상 회의를 합니다. (WebRTC P2P)</p>
         <input id="meetNick" placeholder="닉네임" maxlength="20" /><br>
         <input id="meetRoomCode" placeholder="방 코드 (비우면 공개방)" maxlength="24" />
+        <div style="margin:10px 0">
+          <label style="font-size:13px;color:var(--muted)">성별&nbsp;
+            <select id="meetGender" style="padding:7px 10px">
+              <option value="">선택 안 함</option>
+              <option value="m">남성 (파란색)</option>
+              <option value="f">여성 (빨간색)</option>
+            </select>
+          </label>
+        </div>
         <div style="margin:10px 0">
           <label style="font-size:13px;color:var(--muted)">자동 요약 시간&nbsp;
             <select id="meetDur" style="padding:7px 10px">
@@ -3195,7 +3206,7 @@
     try {
       if (m.t === "chat") {
         if (m.fx) { meetCelebrate(); meetChatSys("🎉 " + (m.nick || "누군가") + "님이 폭죽을 쏘았습니다!"); return; }
-        meetChatAdd(m.nick || "익명", m.text || "", false, !!m.voice); return;
+        meetChatAdd(m.nick || "익명", m.text || "", false, !!m.voice, m.g); return;
       }
       if (m.t === "state") { vcMute[m.from] = m.mic !== false; if (vcPeers[m.from]) vcPeers[m.from].cam = m.cam; meetTileMute(m.from, m.mic); renderMeetPeople(); return; }
       if (m.t === "doc") { const ta = $("meetDoc"); if (ta && document.activeElement !== ta && (m.ts || 0) >= vcDocLast) { ta.value = m.text || ""; vcDocLast = m.ts || 0; } return; }
@@ -3234,32 +3245,34 @@
     box.insertAdjacentHTML("beforeend", html);
     if (atBottom) box.scrollTop = box.scrollHeight;
   }
-  function meetChatAdd(nick, text, mine, voice) {
+  function meetChatAdd(nick, text, mine, voice, gender) {
     if (!text) return null;
     const id = "mcm" + (mcSeq++);
     const hm = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" });
-    meetChatAppend(`<div class="mc-msg ${mine ? "mine" : ""} ${voice ? "voice" : ""}" id="${id}"><span class="mc-nick">${esc(nick)}</span><span class="mc-time">${hm}</span><div class="mc-bubble">${esc(text)}</div><div class="mc-trans" style="display:none"></div></div>`);
+    const gc = gender === "m" ? " g-m" : gender === "f" ? " g-f" : ""; // 남=파랑 / 여=빨강
+    meetChatAppend(`<div class="mc-msg ${mine ? "mine" : ""} ${voice ? "voice" : ""}${gc}" id="${id}"><span class="mc-nick">${esc(nick)}</span><span class="mc-time">${hm}</span><div class="mc-bubble">${esc(text)}</div><div class="mc-trans" style="display:none"></div></div>`);
     vcLog.push({ nick, text, voice: !!voice });
     // 번역 표시: 자동 번역(EN)이 켜져 있거나, 음성으로 들어온 말은 항상 영어로 번역
     if (vcTransOn || voice) meetShowTrans(id, text);
-    if (voice) meetCaptionVoice(nick, text); // 송출 화면 밑 자막
+    if (voice) meetCaptionVoice(nick, text, gender); // 송출 화면 밑 자막
     meetMaybeFx(text); // 축하 이모지면 폭죽
     return id;
   }
 
   /* 송출 화면 하단 실시간 자막 (한국어 + 영어 번역) */
   let capTimer = null;
-  function meetCaptionShow(nick, ko, en) {
+  function meetCaptionShow(nick, ko, en, gender) {
     const el = $("meetCaption"); if (!el) return;
-    el.innerHTML = `<span class="cap-box"><span class="cap-nick">${esc(nick)}</span><span class="cap-ko">${esc(ko)}</span>` +
+    const col = gender === "m" ? "color:#5b9bff" : gender === "f" ? "color:#ff8a9a" : ""; // 자막은 어두운 배경이라 밝은 톤
+    el.innerHTML = `<span class="cap-box"><span class="cap-nick">${esc(nick)}</span><span class="cap-ko" style="${col}">${esc(ko)}</span>` +
       (en ? `<span class="cap-en">🌐 ${esc(en)}</span>` : "") + `</span>`;
     el.classList.add("show");
     if (capTimer) clearTimeout(capTimer);
     capTimer = setTimeout(() => el.classList.remove("show"), 6500);
   }
-  async function meetCaptionVoice(nick, text) {
-    meetCaptionShow(nick, text, "");           // 한국어 먼저
-    if (hasHangul(text)) { const t = await translateEN(text); if (t) meetCaptionShow(nick, text, t); } // 영어 번역 추가
+  async function meetCaptionVoice(nick, text, gender) {
+    meetCaptionShow(nick, text, "", gender);           // 한국어 먼저
+    if (hasHangul(text)) { const t = await translateEN(text); if (t) meetCaptionShow(nick, text, t, gender); } // 영어 번역 추가
   }
 
   /* 영어 자동 번역 (무료 MyMemory, 실패 시 Gemini) */
@@ -3319,18 +3332,21 @@
     }
   }
   function meetChatSys(text) { meetChatAppend(`<div class="mc-sys">${esc(text)}</div>`); }
+  const meetGender = () => ($("meetGender") && $("meetGender").value) || "";
   function meetChatSend() {
     const inp = $("meetChatInput"); const text = inp.value.trim();
     if (!text || !vcOn) return;
-    meetChatAdd(meetNick(), text, true, false);
-    rtcSend({ t: "chat", from: myId, nick: meetNick(), text });
+    const g = meetGender();
+    meetChatAdd(meetNick(), text, true, false, g);
+    rtcSend({ t: "chat", from: myId, nick: meetNick(), text, g });
     inp.value = ""; inp.focus();
   }
   // 말한 내용(음성 인식 최종 결과)을 채팅에 자동 입력 + 브로드캐스트
   function meetVoiceMsg(text) {
     text = (text || "").trim(); if (!text || !vcOn) return;
-    meetChatAdd(meetNick(), text, true, true);
-    rtcSend({ t: "chat", from: myId, nick: meetNick(), text, voice: true });
+    const g = meetGender();
+    meetChatAdd(meetNick(), text, true, true, g);
+    rtcSend({ t: "chat", from: myId, nick: meetNick(), text, voice: true, g });
   }
 
   /* 이모티콘 + 폭죽 효과 */
@@ -3480,6 +3496,7 @@
     const code = ($("meetRoomCode").value || "").trim().slice(0, 24).replace(/[^A-Za-z0-9가-힣_-]/g, "");
     vcTopic = RTC_BASE + (code ? "/" + encodeURIComponent(code) : "/public");
     localStorage.setItem("meetRoomCode", code);
+    localStorage.setItem("meetGender", meetGender());
     $("meetLobby").style.display = "none"; $("meetRoom").style.display = "";
     $("meetRoomLabel").textContent = code ? ("🔒 방: " + code) : "🌐 공개방";
     $("meetChatMsgs").innerHTML = ""; vcLog = [];
@@ -3586,6 +3603,7 @@
   function initMeet() {
     if (!$("meetNick").value) $("meetNick").value = localStorage.getItem("chatNick") || "";
     if (!$("meetRoomCode").value) $("meetRoomCode").value = localStorage.getItem("meetRoomCode") || "";
+    if (!$("meetGender").value) $("meetGender").value = localStorage.getItem("meetGender") || "";
     if (vcWired) return;
     $("meetJoin").onclick = meetJoin;
     $("meetMic").onclick = () => {

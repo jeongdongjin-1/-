@@ -3437,6 +3437,15 @@
     // 고양이 수염
     if (type === "cat") { cx.strokeStyle = "rgba(80,60,40,.55)"; cx.lineWidth = 2; [-1, 1].forEach((s) => { [-6, 2, 10].forEach((dy) => { cx.beginPath(); cx.moveTo(s * 28, 22 + dy * 0.5); cx.lineTo(s * 92, 16 + dy); cx.stroke(); }); }); }
   }
+  // 인간형 버스트: 목 + 어깨(옷). 머리 아래, 캔버스 좌표(고개 기울여도 어깨는 안정적)
+  function drawBust(cx, fx, fy, hr, H) {
+    cx.save();
+    cx.fillStyle = "#5566a8"; // 옷(어깨)
+    cx.beginPath(); cx.ellipse(fx, fy + hr * 2.35, hr * 2.0, hr * 1.55, 0, 0, Math.PI * 2); cx.fill();
+    cx.fillStyle = "rgba(255,255,255,.12)"; cx.beginPath(); cx.ellipse(fx, fy + hr * 2.0, hr * 1.5, hr * 0.9, 0, Math.PI, Math.PI * 2); cx.fill(); // 옷깃 하이라이트
+    cx.fillStyle = "#f0c9a0"; cx.fillRect(fx - hr * 0.27, fy + hr * 0.5, hr * 0.54, hr * 0.85); // 목
+    cx.restore();
+  }
   function avatarDraw() {
     vcAvRAF = requestAnimationFrame(avatarDraw);
     const cv = vcAvCanvas, cx = cv.getContext("2d"), W = cv.width, H = cv.height;
@@ -3458,15 +3467,16 @@
     // VTuber식 생동감: 머리 기울기 + 미세한 idle 흔들림 + 숨쉬기 + 말할 때 들썩임
     const idleSway = Math.sin(vcAvT * 0.6) * 0.025, breath = 1 + Math.sin(vcAvT * 0.5) * 0.012;
     const bob = Math.sin(vcAvT) * 4 - lvl * 12, scale = avScale * breath * (1 + lvl * 0.12);
+    drawBust(cx, fx, fy + bob * 0.4, 100 * avScale, H); // 머리카락·얼굴 아래 어깨(상체) — 머리보다 먼저 그림
     cx.save(); cx.translate(fx, fy + bob); cx.rotate(roll + idleSway); cx.scale(scale, scale);
     if (vcAvatarKind === "animal") {
       drawCuteAnimal(cx, vcAvatarVal, lvl, blink);
     } else if (vcAvatarKind === "img" && vcAvatarImg) {
-      const R = 112; cx.save(); cx.beginPath(); cx.arc(0, 0, R, 0, 7); cx.closePath(); cx.clip();
-      const im = vcAvatarImg, ar = im.width / im.height; let dw = R * 2, dh = R * 2; if (ar > 1) { dh = R * 2; dw = dh * ar; } else { dw = R * 2; dh = dw / ar; }
-      cx.drawImage(im, -dw / 2, -dh / 2, dw, dh); cx.restore();
-      cx.lineWidth = 6; cx.strokeStyle = "#fff"; cx.beginPath(); cx.arc(0, 0, R, 0, 7); cx.stroke();
-      if (lvl > 0.07) { cx.fillStyle = "rgba(0,0,0,.72)"; cx.beginPath(); cx.ellipse(0, R * 0.45, 28, 6 + lvl * 28, 0, 0, 7); cx.fill(); }
+      const RX = 110, RY = 142; cx.save(); cx.beginPath(); cx.ellipse(0, 0, RX, RY, 0, 0, 7); cx.closePath(); cx.clip();
+      const im = vcAvatarImg, iw = im.width, ih = im.height, sc = Math.max((RX * 2) / iw, (RY * 2) / ih), dw = iw * sc, dh = ih * sc;
+      cx.drawImage(im, -dw / 2, -dh / 2, dw, dh); cx.restore(); // 머리카락·어깨까지 세로로 더 보이게(타원)
+      cx.lineWidth = 6; cx.strokeStyle = "#fff"; cx.beginPath(); cx.ellipse(0, 0, RX, RY, 0, 0, 7); cx.stroke();
+      if (lvl > 0.07) { cx.fillStyle = "rgba(0,0,0,.72)"; cx.beginPath(); cx.ellipse(0, RY * 0.42, 28, 6 + lvl * 28, 0, 0, 7); cx.fill(); }
     } else {
       cx.font = "150px serif"; cx.textAlign = "center"; cx.textBaseline = "middle"; cx.fillText(vcAvatarVal || "🙂", 0, 0);
       if (lvl > 0.07) { cx.fillStyle = "rgba(0,0,0,.6)"; cx.beginPath(); cx.ellipse(0, 40, 24, 5 + lvl * 26, 0, 0, 7); cx.fill(); }

@@ -2700,7 +2700,11 @@
     const sum = localStorage.getItem(pf + "sum:" + date) || "(요약 없음 — 요약 생성 버튼을 눌러 만들 수 있어요)";
     const what = pf === "meetlog" ? "화상회의" : "토론방";
     const lines = arr.map((m) => `[${new Date(m.t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })}] ${m.nick}: ${m.text}`);
-    const txt = `📁 ${what} 채팅 기록 — ${date}\n메시지 ${arr.length}개\n\n[요약]\n${sum}\n\n[대화 전문]\n${lines.join("\n")}\n`;
+    // 닉네임(화자)별로 무슨 말을 했는지 묶기
+    const groups = {}; arr.forEach((m) => { (groups[m.nick] = groups[m.nick] || []).push(m.text); });
+    const byNick = "\n\n[닉네임(화자)별]\n" + Object.keys(groups).map((n) => `■ ${n} (${groups[n].length}회)\n  - ` + groups[n].join("\n  - ")).join("\n\n");
+    const wd = ["일", "월", "화", "수", "목", "금", "토"][new Date(date + "T00:00:00").getDay()];
+    const txt = `📁 ${what} 채팅 기록 — ${date}(${wd})\n메시지 ${arr.length}개\n\n[요약]\n${sum}\n\n[대화 전문]\n${lines.join("\n")}${byNick}\n`;
     const url = URL.createObjectURL(new Blob([txt], { type: "text/plain;charset=utf-8" }));
     const a = document.createElement("a"); a.href = url; a.download = what + "기록_" + date + ".txt"; a.click();
     setTimeout(() => URL.revokeObjectURL(url), 3000);
@@ -3794,31 +3798,37 @@
     if (centroid > 0) score += centroid < 2100 ? -0.4 : 0.4;
     return score <= 0 ? "m" : "f";
   }
+  /* 목소리 지문(보이스프린트) 영구 저장 — 같은 목소리 = 같은 닉네임 (화자N 형식 대신 친근한 이름) */
+  const VOICE_NAMES = ["라임", "코코", "민트", "모카", "바닐라", "체리", "망고", "자몽", "보리", "쑥떡", "두유", "단팥", "유자", "살구", "호두", "밤톨", "감자", "고구마", "대추", "연두"];
+  let vcVoiceprints = null, vpSaveT = null;
+  function loadVoiceprints() { if (vcVoiceprints) return; try { vcVoiceprints = JSON.parse(localStorage.getItem("voiceprints") || "[]"); } catch (e) { vcVoiceprints = []; } if (!Array.isArray(vcVoiceprints)) vcVoiceprints = []; }
+  function saveVoiceprintsSoon() { if (vpSaveT) return; vpSaveT = setTimeout(() => { vpSaveT = null; try { localStorage.setItem("voiceprints", JSON.stringify(vcVoiceprints.slice(-60))); } catch (e) {} }, 1500); }
+  function nextVoiceNick() { const used = new Set(vcVoiceprints.map((v) => v.nick)); for (const n of VOICE_NAMES) if (!used.has(n)) return n; return VOICE_NAMES[vcVoiceprints.length % VOICE_NAMES.length] + (Math.floor(vcVoiceprints.length / VOICE_NAMES.length) + 1); }
   function assignSpeaker(pitch, mfcc, centroid) {
+    loadVoiceprints();
     const gender = guessGender(pitch, centroid);
-    // 1) 음색(MFCC) 코사인 유사도로 같은 화자 판정(정밀). MFCC[0]=로그에너지는 제외(화자보다 음량 반영)
+    // 1) 음색(MFCC) 코사인 유사도로 같은 목소리 판정(영구 기억). MFCC[0]=로그에너지는 제외
     if (mfcc && mfcc.length > 3) {
       const key = mfcc.slice(1);
       let best = null, bs = -1;
-      vcSpeakers.forEach((s) => { if (s.mfcc) { const c = cosine(s.mfcc.slice(1), key); if (c > bs) { bs = c; best = s; } } });
-      if (best && bs > 0.82) { for (let i = 0; i < mfcc.length; i++) best.mfcc[i] = best.mfcc[i] * 0.7 + mfcc[i] * 0.3; if (pitch) best.pitch = best.pitch * 0.7 + pitch * 0.3; best.n++; return best; }
-      const s = { pitch: pitch || 0, mfcc: mfcc.slice(), gender, nick: "화자" + (vcSpeakers.length + 1) }; vcSpeakers.push(s); return s;
+      vcVoiceprints.forEach((s) => { if (s.mfcc) { const c = cosine(s.mfcc.slice(1), key); if (c > bs) { bs = c; best = s; } } });
+      if (best && bs > 0.82) { for (let i = 0; i < mfcc.length; i++) best.mfcc[i] = best.mfcc[i] * 0.7 + mfcc[i] * 0.3; if (pitch) best.pitch = best.pitch * 0.7 + pitch * 0.3; best.gender = gender; best.n = (best.n || 1) + 1; saveVoiceprintsSoon(); return best; }
+      const s = { nick: nextVoiceNick(), pitch: pitch || 0, mfcc: mfcc.slice(), gender, n: 1 }; vcVoiceprints.push(s); saveVoiceprintsSoon(); return s;
     }
     // 2) MFCC 없으면 피치 거리로 폴백
     if (!pitch) return null;
     let best = null, bd = 1e9;
-    vcSpeakers.forEach((s) => { const d = Math.abs((s.pitch || 0) - pitch); if (d < bd) { bd = d; best = s; } });
-    if (best && bd <= 26) { best.pitch = best.pitch * 0.7 + pitch * 0.3; best.n++; return best; }
-    const s = { pitch, gender, nick: "화자" + (vcSpeakers.length + 1) }; vcSpeakers.push(s); return s;
+    vcVoiceprints.forEach((s) => { const d = Math.abs((s.pitch || 0) - pitch); if (d < bd) { bd = d; best = s; } });
+    if (best && bd <= 26) { best.pitch = best.pitch * 0.7 + pitch * 0.3; best.gender = gender; best.n = (best.n || 1) + 1; saveVoiceprintsSoon(); return best; }
+    const s = { nick: nextVoiceNick(), pitch, gender, n: 1 }; vcVoiceprints.push(s); saveVoiceprintsSoon(); return s;
   }
-  // 말한 내용(음성 인식 최종 결과)을 채팅에 자동 입력 + 브로드캐스트
+  // 말한 내용(음성 인식 최종 결과)을 채팅에 자동 입력 + 브로드캐스트 — 목소리 지문 닉네임 사용
   function meetVoiceMsg(text) {
     text = (text || "").trim(); if (!text || !vcOn) return;
     const pitch = recentPitch(), mfcc = avgVec(vcMfccBuf.slice(-25)), centroid = recentAvg(vcCentBuf);
     const sp = assignSpeaker(pitch, mfcc, centroid);
-    let nick = meetNick(), g = meetGender();
-    if (sp && vcSpeakers.length > 1) { nick = meetNick() + " · " + sp.nick; g = sp.gender; } // 복수 화자: 임의 닉네임 + 음색·톤 기반 색
-    else if (sp && !g) { g = sp.gender; } // 단일 화자·성별 미선택: 추정 색
+    const nick = sp ? sp.nick : meetNick(); // 목소리로 식별한 닉네임
+    const g = sp ? sp.gender : meetGender(); // 톤 기반 색(남=파랑/여=빨강)
     vcPitchBuf = []; vcMfccBuf = []; vcCentBuf = []; // 다음 발화 준비
     meetChatAdd(nick, text, true, true, g);
     rtcSend({ t: "chat", from: myId, nick, text, voice: true, g });

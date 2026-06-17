@@ -3434,12 +3434,12 @@
     const cv = vcAvCanvas, cx = cv.getContext("2d"), W = cv.width, H = cv.height;
     vcAvT += 0.05; const lvl = avatarLevel();
     // 배경: 실제 카메라 영상 유지(사람·배경 그대로). 캠이 꺼졌으면 그라데이션.
-    let fx = W / 2, fy = H * 0.40, avScale = 0.78; // 폴백(고정 위치)
+    let fx = W / 2, fy = H * 0.42, avScale = 1.05; // 폴백(고정 위치)
     if (vcCamOn && vcAvVideo && vcAvVideo.videoWidth) {
       const vw = vcAvVideo.videoWidth, vh = vcAvVideo.videoHeight, sc = Math.max(W / vw, H / vh), dw = vw * sc, dh = vh * sc, ox = (W - dw) / 2, oy = (H - dh) / 2;
       try { cx.drawImage(vcAvVideo, ox, oy, dw, dh); } catch (e) {}
-      if (vcFaceTarget) { // 검출된 얼굴 위치/크기로 부드럽게 이동
-        const tx = ox + vcFaceTarget.xc * dw, ty = oy + vcFaceTarget.yc * dh, ts = Math.max(0.3, Math.min(2.4, (vcFaceTarget.w * dw * 1.7) / 200));
+      if (vcFaceTarget) { // 검출된 얼굴 위치/크기로 부드럽게 이동 (얼굴보다 크게·살짝 위로 → 머리까지 감쌈)
+        const tx = ox + vcFaceTarget.xc * dw, ty = oy + (vcFaceTarget.yc - vcFaceTarget.h * 0.12) * dh, ts = Math.max(0.4, Math.min(3.8, (vcFaceTarget.w * dw * 2.5) / 200));
         if (!vcFace) vcFace = { x: tx, y: ty, s: ts }; else { vcFace.x += (tx - vcFace.x) * 0.3; vcFace.y += (ty - vcFace.y) * 0.3; vcFace.s += (ts - vcFace.s) * 0.3; }
         fx = vcFace.x; fy = vcFace.y; avScale = vcFace.s;
       }

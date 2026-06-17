@@ -982,6 +982,7 @@
             <button id="meetMic" title="마이크">🎤</button>
             <button id="meetCam" title="카메라">📷</button>
             <button id="meetShare" title="화면 공유">🖥</button>
+            <button id="meetAvatar" title="가상화 아바타 (카메라 대신 송출)">🦸</button>
             <button id="meetStt" title="음성 자막 (말하면 채팅에 자동 입력)" class="meet-cc off">CC</button>
             <button id="meetTrans" title="영어 자동 번역 (채팅·자막을 영어로)" class="meet-cc off">EN</button>
             <button id="meetSummary" title="지금 요약하기">📝</button>
@@ -3356,11 +3357,95 @@
     meetChatSys("🖥 화면 공유를 종료했습니다.");
   }
 
+  /* ===== 가상화 아바타 (카메라 대신 캔버스 송출 + 음성 반응) ===== */
+  let vcAvatarOn = false, vcAvatarKind = null, vcAvatarVal = null, vcAvatarImg = null;
+  let vcAvCanvas = null, vcAvStream = null, vcAvTrack = null, vcAvRAF = 0, vcAvAn = null, vcAvData = null, vcAvT = 0;
+  function avatarLevel() {
+    if (!vcAvAn || !vcMicOn) return 0;
+    vcAvAn.getByteTimeDomainData(vcAvData);
+    let s = 0; for (let i = 0; i < vcAvData.length; i++) { const v = (vcAvData[i] - 128) / 128; s += v * v; }
+    return Math.min(1, Math.sqrt(s / vcAvData.length) * 4.2);
+  }
+  function avatarDraw() {
+    vcAvRAF = requestAnimationFrame(avatarDraw);
+    const cv = vcAvCanvas, cx = cv.getContext("2d"), W = cv.width, H = cv.height;
+    vcAvT += 0.05; const lvl = avatarLevel();
+    const g = cx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#1b2a4a"); g.addColorStop(1, "#0b1020"); cx.fillStyle = g; cx.fillRect(0, 0, W, H);
+    const bob = Math.sin(vcAvT) * 6 - lvl * 16, scale = 1 + lvl * 0.13;
+    cx.save(); cx.translate(W / 2, H / 2 + bob); cx.scale(scale, scale);
+    if (vcAvatarKind === "img" && vcAvatarImg) {
+      const R = 112; cx.save(); cx.beginPath(); cx.arc(0, 0, R, 0, 7); cx.closePath(); cx.clip();
+      const im = vcAvatarImg, ar = im.width / im.height; let dw = R * 2, dh = R * 2; if (ar > 1) { dh = R * 2; dw = dh * ar; } else { dw = R * 2; dh = dw / ar; }
+      cx.drawImage(im, -dw / 2, -dh / 2, dw, dh); cx.restore();
+      cx.lineWidth = 6; cx.strokeStyle = "#fff"; cx.beginPath(); cx.arc(0, 0, R, 0, 7); cx.stroke();
+      if (lvl > 0.07) { cx.fillStyle = "rgba(0,0,0,.72)"; cx.beginPath(); cx.ellipse(0, R * 0.45, 28, 6 + lvl * 28, 0, 0, 7); cx.fill(); }
+    } else {
+      cx.font = "150px serif"; cx.textAlign = "center"; cx.textBaseline = "middle"; cx.fillText(vcAvatarVal || "🙂", 0, 0);
+      if (lvl > 0.07) { cx.fillStyle = "rgba(0,0,0,.6)"; cx.beginPath(); cx.ellipse(0, 40, 24, 5 + lvl * 26, 0, 0, 7); cx.fill(); }
+    }
+    cx.restore();
+    cx.font = "15px sans-serif"; cx.textAlign = "left"; cx.textBaseline = "alphabetic";
+    const nm = "🦸 " + meetNick(); const tw = cx.measureText(nm).width;
+    cx.fillStyle = "rgba(0,0,0,.5)"; cx.fillRect(8, H - 32, tw + 16, 24); cx.fillStyle = "#fff"; cx.fillText(nm, 16, H - 15);
+  }
+  function avatarStart(kind, val, img) {
+    if (!vcOn || !vcStream) return;
+    if (!vcAvCanvas || !vcAvCanvas.captureStream) {
+      if (!vcAvCanvas) vcAvCanvas = document.createElement("canvas");
+      if (!vcAvCanvas.captureStream) { alert("이 브라우저는 아바타 송출을 지원하지 않습니다(데스크톱 크롬·엣지 권장)."); return; }
+    }
+    if (vcScreen) meetStopShare();
+    vcAvatarKind = kind; vcAvatarVal = val; vcAvatarImg = img || null;
+    vcAvCanvas.width = 480; vcAvCanvas.height = 360;
+    try { if (!vcAudioCtx) vcAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); if (!vcAvAn) { const src = vcAudioCtx.createMediaStreamSource(vcStream); vcAvAn = vcAudioCtx.createAnalyser(); vcAvAn.fftSize = 512; src.connect(vcAvAn); vcAvData = new Uint8Array(vcAvAn.fftSize); } } catch (e) {}
+    if (!vcAvRAF) avatarDraw();
+    if (!vcAvStream) { vcAvStream = vcAvCanvas.captureStream(25); vcAvTrack = vcAvStream.getVideoTracks()[0]; }
+    Object.values(vcPeers).forEach((p) => { const s = p.pc.getSenders().find((x) => x.track && x.track.kind === "video"); if (s) s.replaceTrack(vcAvTrack); });
+    const lt = document.getElementById("vtile-" + myId); if (lt) lt.querySelector("video").srcObject = new MediaStream([vcAvTrack].concat(vcStream.getAudioTracks()));
+    vcAvatarOn = true; $("meetAvatar").classList.add("live");
+    meetChatSys("🦸 가상화 아바타를 켰습니다. 말하면 아바타가 반응합니다.");
+  }
+  function avatarStop() {
+    if (!vcAvatarOn) return;
+    const cam = vcStream && vcStream.getVideoTracks()[0];
+    Object.values(vcPeers).forEach((p) => { const s = p.pc.getSenders().find((x) => x.track && x.track.kind === "video"); if (s && cam) s.replaceTrack(cam); });
+    const lt = document.getElementById("vtile-" + myId); if (lt) lt.querySelector("video").srcObject = vcStream;
+    if (vcAvRAF) { cancelAnimationFrame(vcAvRAF); vcAvRAF = 0; }
+    vcAvatarOn = false; $("meetAvatar").classList.remove("live");
+    meetChatSys("🦸 아바타를 끄고 카메라로 돌아왔습니다.");
+  }
+  function avatarCleanup() {
+    if (vcAvRAF) { cancelAnimationFrame(vcAvRAF); vcAvRAF = 0; }
+    if (vcAvStream) { try { vcAvStream.getTracks().forEach((t) => t.stop()); } catch (e) {} }
+    vcAvStream = null; vcAvTrack = null; vcAvAn = null; vcAvatarOn = false; vcAvatarImg = null;
+  }
+  function openAvatarPicker() {
+    if (!vcOn) return;
+    $("modalTitle").textContent = "🦸 가상화 아바타 선택";
+    $("modalOpen").style.display = "none";
+    const body = $("modalBody"); body.style.background = "var(--card)";
+    const emojis = ["🙂", "😎", "🐱", "🐶", "🦊", "🐼", "🐵", "🤖", "👽", "🦸", "🧑‍🚀", "👻", "🐯", "🦁", "🐸", "🐰"];
+    body.innerHTML = `<div style="padding:16px">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:10px">이모지 아바타를 고르거나 내 이미지를 올리세요. 카메라 대신 아바타가 송출되고, 말하면 아바타가 들썩이며 입이 움직입니다.</p>
+        <div id="avEmoji" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${emojis.map((e) => `<button data-emoji="${e}" style="font-size:28px;border:1px solid var(--border);background:var(--bg);border-radius:10px;padding:6px 8px;cursor:pointer">${e}</button>`).join("")}</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <label style="border:1px solid var(--border);border-radius:8px;padding:9px 13px;cursor:pointer;background:var(--bg);font-weight:700;font-size:13px">🖼 내 이미지 업로드<input id="avFile" type="file" accept="image/*" style="display:none"></label>
+          <button id="avOff" style="border:none;border-radius:8px;padding:9px 14px;background:#e03131;color:#fff;font-weight:700;cursor:pointer">아바타 끄기(카메라)</button>
+        </div>
+        <p style="font-size:11.5px;color:var(--muted);margin-top:10px">※ 이미지는 이 기기에서만 처리되어 영상으로 전송됩니다(서버 업로드 없음).</p>
+      </div>`;
+    $("mediaModal").style.display = "flex";
+    body.querySelectorAll("#avEmoji button").forEach((b) => { b.onclick = () => { avatarStart("emoji", b.dataset.emoji, null); closeMedia(); }; });
+    $("avFile").onchange = (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { const img = new Image(); img.onload = () => { avatarStart("img", null, img); closeMedia(); }; img.src = r.result; }; r.readAsDataURL(f); };
+    $("avOff").onclick = () => { avatarStop(); closeMedia(); };
+  }
+
   function vcMakePeer(id, nick) {
     if (vcPeers[id]) return vcPeers[id];
     const pc = new RTCPeerConnection({ iceServers: RTC_ICE });
     vcStream.getTracks().forEach((tr) => pc.addTrack(tr, vcStream));
-    if (vcScreenTrack) { const s = pc.getSenders().find((x) => x.track && x.track.kind === "video"); if (s) s.replaceTrack(vcScreenTrack); } // 공유 중 입장한 피어에도 화면 송출
+    const vt = vcAvatarOn ? vcAvTrack : vcScreenTrack; // 아바타/화면공유 중 입장한 피어에도 동일 송출
+    if (vt) { const s = pc.getSenders().find((x) => x.track && x.track.kind === "video"); if (s) s.replaceTrack(vt); }
     pc.onicecandidate = (e) => { if (e.candidate) rtcSend({ t: "ice", from: myId, to: id, cand: e.candidate }); };
     pc.ontrack = (e) => vcTile(id, (vcPeers[id] && vcPeers[id].nick) || "상대", e.streams[0], false);
     pc.onconnectionstatechange = () => { if (["failed", "closed"].includes(pc.connectionState)) vcRemovePeer(id); };
@@ -3799,6 +3884,7 @@
   function meetLeave() {
     meetLeaveQuiet();
     meetStopShare();
+    avatarCleanup();
     meetSttStop();
     stopPitchTracking();
     vcMetersStop();
@@ -3882,6 +3968,7 @@
     };
     $("meetCam").onclick = () => { vcCamOn = !vcCamOn; if (vcStream) vcStream.getVideoTracks().forEach((t) => t.enabled = vcCamOn); $("meetCam").classList.toggle("off", !vcCamOn); $("meetCam").textContent = vcCamOn ? "📷" : "🚫"; meetBroadcastState(); };
     $("meetShare").onclick = meetShareToggle;
+    $("meetAvatar").onclick = openAvatarPicker;
     $("meetStt").onclick = meetSttToggle;
     $("meetTrans").onclick = meetTransToggle;
     $("meetSummary").onclick = () => meetSummarize(false);

@@ -3556,7 +3556,26 @@
     } catch (e) {}
     if (!src) return (personPhotoCache[id] = null);
     const img = await new Promise((res) => { const im = new Image(); im.crossOrigin = "anonymous"; im.onload = () => res(im); im.onerror = () => res(null); im.src = src; });
-    personPhotoCache[id] = img; return img;
+    personPhotoCache[id] = img;
+    if (img) detectPhotoFace(id, img); // 사진 속 입·눈 위치 검출(말하는 효과용)
+    return img;
+  }
+  // 사진 속 얼굴(입 위치) 1회 검출 → 말하는 효과 정렬
+  const photoFaceCache = {};
+  async function detectPhotoFace(id, img) {
+    if (photoFaceCache[id] !== undefined) return;
+    photoFaceCache[id] = null;
+    try {
+      await ensureFaceDetector(); if (!window.FaceDetection) return;
+      const fd = new window.FaceDetection({ locateFile: (f) => "https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/" + f });
+      fd.setOptions({ model: "short", minDetectionConfidence: 0.5 });
+      await new Promise((res) => {
+        let done = false; const fin = (v) => { if (done) return; done = true; photoFaceCache[id] = v; try { fd.close(); } catch (e) {} res(); };
+        fd.onResults((r) => { const d = r.detections && r.detections[0]; if (d && d.keypoints) fin({ mouth: d.keypoints[3], reye: d.keypoints[0], leye: d.keypoints[1] }); else fin(null); });
+        fd.send({ image: img }).catch(() => fin(null));
+        setTimeout(() => fin(null), 4000);
+      });
+    } catch (e) {}
   }
   function drawPersonAvatar(cx, id, lvl, blink) {
     const P = PERSONS[id] || {}; const skin = P.skin || "#eec6a0", hair = P.hair || "#333", R = 100, TAU = Math.PI * 2;
@@ -3632,11 +3651,21 @@
     } else if (vcAvatarKind === "animal") {
       drawCuteAnimal(cx, vcAvatarVal, lvl, blink);
     } else if (vcAvatarKind === "img" && vcAvatarImg) {
-      const RX = 110, RY = 142; cx.save(); cx.beginPath(); cx.ellipse(0, 0, RX, RY, 0, 0, 7); cx.closePath(); cx.clip();
-      const im = vcAvatarImg, iw = im.width, ih = im.height, sc = Math.max((RX * 2) / iw, (RY * 2) / ih), dw = iw * sc, dh = ih * sc;
-      cx.drawImage(im, -dw / 2, -dh / 2, dw, dh); cx.restore(); // 머리카락·어깨까지 세로로 더 보이게(타원)
-      cx.lineWidth = 6; cx.strokeStyle = "#fff"; cx.beginPath(); cx.ellipse(0, 0, RX, RY, 0, 0, 7); cx.stroke();
-      if (lvl > 0.07) { cx.fillStyle = "rgba(0,0,0,.72)"; cx.beginPath(); cx.ellipse(0, RY * 0.42, 28, 6 + lvl * 28, 0, 0, 7); cx.fill(); }
+      const RX = 110, RY = 142, TAU2 = Math.PI * 2; cx.save(); cx.beginPath(); cx.ellipse(0, 0, RX, RY, 0, 0, TAU2); cx.closePath(); cx.clip();
+      const im = vcAvatarImg, iw = im.width, ih = im.height, sc = Math.max((RX * 2) / iw, (RY * 2) / ih), dw = iw * sc, dh = ih * sc, ox = -dw / 2, oy = -dh / 2;
+      cx.drawImage(im, ox, oy, dw, dh); // 사진 전체
+      // 말하는 효과: 검출된 입 위치(없으면 추정)에 입 벌림 + 턱 살짝 내림
+      const pf = vcAvatarVal && photoFaceCache[vcAvatarVal];
+      const myN = (pf && pf.mouth) ? pf.mouth.y : 0.62, mxN = (pf && pf.mouth) ? pf.mouth.x : 0.5;
+      const mx = ox + mxN * dw, my = oy + myN * dh, open = lvl * 24;
+      if (open > 1.5) {
+        cx.drawImage(im, 0, myN * ih, iw, ih - myN * ih, ox, oy + myN * dh + open, dw, dh * (1 - myN)); // 턱(입 아래) 아래로
+        const oh = Math.min(20, open);
+        cx.fillStyle = "#5a1f1f"; cx.beginPath(); cx.ellipse(mx, my + oh * 0.4, 17, oh, 0, 0, TAU2); cx.fill(); // 입속(어두움)
+        cx.fillStyle = "#f7f3ea"; cx.fillRect(mx - 15, my - oh * 0.5, 30, 4); // 윗니
+      }
+      cx.restore();
+      cx.lineWidth = 6; cx.strokeStyle = "#fff"; cx.beginPath(); cx.ellipse(0, 0, RX, RY, 0, 0, TAU2); cx.stroke();
     } else {
       cx.font = "150px serif"; cx.textAlign = "center"; cx.textBaseline = "middle"; cx.fillText(vcAvatarVal || "🙂", 0, 0);
       if (lvl > 0.07) { cx.fillStyle = "rgba(0,0,0,.6)"; cx.beginPath(); cx.ellipse(0, 40, 24, 5 + lvl * 26, 0, 0, 7); cx.fill(); }

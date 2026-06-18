@@ -4607,9 +4607,11 @@
     window.addEventListener("load", () => {
       navigator.serviceWorker.register("sw.js").then((reg) => { try { reg.update(); } catch (e) {} }).catch(() => {});
     });
-    // 새 버전(서비스워커)이 적용되면 자동으로 한 번 새로고침 → 항상 최신 버전 사용
-    let swReloaded = false;
-    navigator.serviceWorker.addEventListener("controllerchange", () => { if (swReloaded) return; swReloaded = true; location.reload(); });
+    // 새 버전 적용 시 한 번만 새로고침(세션당 1회로 제한 → 새로고침 루프 방지)
+    navigator.serviceWorker.addEventListener("controllerchange", () => {
+      try { if (sessionStorage.getItem("swReloaded")) return; sessionStorage.setItem("swReloaded", "1"); } catch (e) { return; }
+      location.reload();
+    });
   }
 </script>
 </body>

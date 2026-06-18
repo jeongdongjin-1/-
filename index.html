@@ -3440,7 +3440,7 @@
 
   /* ===== 가상화 아바타 (카메라 대신 캔버스 송출 + 음성 반응) ===== */
   let vcAvatarOn = false, vcAvatarKind = null, vcAvatarVal = null, vcAvatarImg = null;
-  let vcAvCanvas = null, vcAvStream = null, vcAvTrack = null, vcAvRAF = 0, vcAvAn = null, vcAvData = null, vcAvT = 0, vcAvVideo = null, vcAvatarTie = null, vcAvatarCutout = false;
+  let vcAvCanvas = null, vcAvStream = null, vcAvTrack = null, vcAvRAF = 0, vcAvAn = null, vcAvData = null, vcAvT = 0, vcAvVideo = null, vcAvatarTie = null, vcAvatarCutout = false, vcAvFx = null;
   let vcFd = null, vcFdReady = null, vcFdTimer = null, vcFdBusy = false, vcFaceTarget = null, vcFace = null; // 얼굴 추적
   let vcLvlSmooth = 0, vcBlinkNext = 0, vcBlinkStart = 0; // VTuber 모션: 립싱크 평활·눈 깜빡임
   function blinkAmount() { // 0(뜸)~1(감음) 자연스러운 자동 깜빡임
@@ -3710,34 +3710,41 @@
     } else if (vcAvatarKind === "img" && vcAvatarImg) {
       const RX = 110, RY = 142, TAU2 = Math.PI * 2;
       const im = vcAvatarImg, iw = im.width, ih = im.height;
+      // 오프스크린에 얼굴을 합성한 뒤 입체 음영을 인물 영역에만 입힘
+      if (!vcAvFx) vcAvFx = document.createElement("canvas");
+      const FW = Math.ceil(RX * 2.7), FH = Math.ceil(RY * 2.7); vcAvFx.width = FW; vcAvFx.height = FH;
+      const fcx = vcAvFx.getContext("2d"), cxc = FW / 2, cyc = FH / 2;
       let dw, dh, ox, oy;
-      cx.save();
-      if (vcAvatarCutout) { // 배경 제거된 인물: 타원 클립 없이 컷아웃 + 그림자(입체감)
-        const sc = Math.min((RX * 2.4) / iw, (RY * 2.2) / ih); dw = iw * sc; dh = ih * sc; ox = -dw / 2; oy = -dh / 2 - RY * 0.12;
-        cx.shadowColor = "rgba(0,0,0,.45)"; cx.shadowBlur = 18; cx.shadowOffsetX = 6; cx.shadowOffsetY = 10; // 입체 그림자
-        cx.drawImage(im, ox, oy, dw, dh); cx.shadowColor = "transparent";
-      } else { // 원본 사진: 타원 액자
-        const sc = Math.max((RX * 2) / iw, (RY * 2) / ih); dw = iw * sc; dh = ih * sc; ox = -dw / 2; oy = -dh / 2;
-        cx.beginPath(); cx.ellipse(0, 0, RX, RY, 0, 0, TAU2); cx.clip();
-        cx.drawImage(im, ox, oy, dw, dh);
-      }
-      // 말하는 효과: 검출된 입 위치(없으면 추정)에 입 벌림 + 턱 살짝 내림
+      if (vcAvatarCutout) { const sc = Math.min((RX * 2.4) / iw, (RY * 2.2) / ih); dw = iw * sc; dh = ih * sc; ox = cxc - dw / 2; oy = cyc - dh / 2 - RY * 0.12; fcx.drawImage(im, ox, oy, dw, dh); }
+      else { const sc = Math.max((RX * 2) / iw, (RY * 2) / ih); dw = iw * sc; dh = ih * sc; ox = cxc - dw / 2; oy = cyc - dh / 2; fcx.save(); fcx.beginPath(); fcx.ellipse(cxc, cyc, RX, RY, 0, 0, TAU2); fcx.clip(); fcx.drawImage(im, ox, oy, dw, dh); fcx.restore(); }
+      // 말하는 효과: 입 벌림 + 턱 내림
       const pf = vcAvatarVal && photoFaceCache[vcAvatarVal];
       const myN = (pf && pf.mouth) ? pf.mouth.y : 0.62, mxN = (pf && pf.mouth) ? pf.mouth.x : 0.5;
       const mx = ox + mxN * dw, my = oy + myN * dh, open = lvl * 34;
       if (open > 0.8) {
-        cx.drawImage(im, 0, myN * ih, iw, ih - myN * ih, ox, oy + myN * dh + open, dw, dh * (1 - myN)); // 턱(입 아래) 아래로
+        if (vcAvatarCutout) fcx.drawImage(im, 0, myN * ih, iw, ih - myN * ih, ox, oy + myN * dh + open, dw, dh * (1 - myN));
+        else { fcx.save(); fcx.beginPath(); fcx.ellipse(cxc, cyc, RX, RY, 0, 0, TAU2); fcx.clip(); fcx.drawImage(im, 0, myN * ih, iw, ih - myN * ih, ox, oy + myN * dh + open, dw, dh * (1 - myN)); fcx.restore(); }
         const oh = Math.min(26, open);
-        cx.fillStyle = "#5a1f1f"; cx.beginPath(); cx.ellipse(mx, my + oh * 0.4, 18, oh, 0, 0, TAU2); cx.fill(); // 입속(어두움)
-        cx.fillStyle = "#f7f3ea"; cx.fillRect(mx - 16, my - oh * 0.5, 32, 4); // 윗니
-        if (oh > 9) { cx.fillStyle = "#c66"; cx.beginPath(); cx.ellipse(mx, my + oh * 0.85, 10, oh * 0.35, 0, 0, TAU2); cx.fill(); } // 혀
+        fcx.fillStyle = "#5a1f1f"; fcx.beginPath(); fcx.ellipse(mx, my + oh * 0.4, 18, oh, 0, 0, TAU2); fcx.fill();
+        fcx.fillStyle = "#f7f3ea"; fcx.fillRect(mx - 16, my - oh * 0.5, 32, 4);
+        if (oh > 9) { fcx.fillStyle = "#c66"; fcx.beginPath(); fcx.ellipse(mx, my + oh * 0.85, 10, oh * 0.35, 0, 0, TAU2); fcx.fill(); }
       }
-      // 눈 깜빡임: 검출된 눈 위치에 피부색 눈꺼풀 (VTuber 생동감)
-      if (pf && pf.reye && pf.leye && blink > 0.06) {
-        cx.fillStyle = pf.skin || "#e8c0a0";
-        [pf.reye, pf.leye].forEach((ey) => { const ex = ox + ey.x * dw, ee = oy + ey.y * dh; cx.beginPath(); cx.ellipse(ex, ee, dw * 0.075, dh * 0.05 * blink + 1, 0, 0, TAU2); cx.fill(); });
-      }
-      cx.restore();
+      // 눈 깜빡임
+      if (pf && pf.reye && pf.leye && blink > 0.06) { fcx.fillStyle = pf.skin || "#e8c0a0"; [pf.reye, pf.leye].forEach((ey) => { const ex = ox + ey.x * dw, ee = oy + ey.y * dh; fcx.beginPath(); fcx.ellipse(ex, ee, dw * 0.075, dh * 0.05 * blink + 1, 0, 0, TAU2); fcx.fill(); }); }
+      // 3D 입체 음영: 둥근 볼륨(가장자리 어둡게) + 이동 하이라이트 — source-atop으로 인물 영역에만
+      fcx.globalCompositeOperation = "source-atop";
+      const vg = fcx.createRadialGradient(cxc, cyc - RY * 0.12, RY * 0.32, cxc, cyc, RY * 1.15);
+      vg.addColorStop(0, "rgba(0,0,0,0)"); vg.addColorStop(0.7, "rgba(0,0,0,0.05)"); vg.addColorStop(1, "rgba(0,0,0,0.4)");
+      fcx.fillStyle = vg; fcx.fillRect(0, 0, FW, FH);
+      const hx = cxc + Math.cos(vcAvT * 0.4) * RX * 0.42, hy = cyc - RY * 0.42;
+      const hg = fcx.createRadialGradient(hx, hy, 2, hx, hy, RX * 0.85);
+      hg.addColorStop(0, "rgba(255,255,255,0.25)"); hg.addColorStop(1, "rgba(255,255,255,0)");
+      fcx.fillStyle = hg; fcx.fillRect(0, 0, FW, FH);
+      fcx.globalCompositeOperation = "source-over";
+      // 메인 캔버스에 합성(머리 변환 적용됨) + 컷아웃은 그림자
+      cx.save();
+      if (vcAvatarCutout) { cx.shadowColor = "rgba(0,0,0,.45)"; cx.shadowBlur = 18; cx.shadowOffsetX = 6; cx.shadowOffsetY = 10; }
+      cx.drawImage(vcAvFx, -FW / 2, -FH / 2); cx.restore();
       if (!vcAvatarCutout) { cx.lineWidth = 6; cx.strokeStyle = "#fff"; cx.beginPath(); cx.ellipse(0, 0, RX, RY, 0, 0, TAU2); cx.stroke(); }
     } else {
       cx.font = "150px serif"; cx.textAlign = "center"; cx.textBaseline = "middle"; cx.fillText(vcAvatarVal || "🙂", 0, 0);

@@ -3474,7 +3474,7 @@
     if (!vcAvAn || !vcMicOn) return 0;
     vcAvAn.getByteTimeDomainData(vcAvData);
     let s = 0; for (let i = 0; i < vcAvData.length; i++) { const v = (vcAvData[i] - 128) / 128; s += v * v; }
-    return Math.min(1, Math.sqrt(s / vcAvData.length) * 4.2);
+    return Math.min(1, Math.sqrt(s / vcAvData.length) * 6.5);
   }
   const ANIMALS = { cat: "🐱 고양이", dog: "🐶 강아지", bear: "🐻 곰", rabbit: "🐰 토끼", fox: "🦊 여우", panda: "🐼 판다" };
   function drawCuteAnimal(cx, type, lvl, blink) { // 캔버스에 직접 그리는 귀여운 동물 (입=음성, 눈=깜빡임)
@@ -3724,12 +3724,13 @@
       // 말하는 효과: 검출된 입 위치(없으면 추정)에 입 벌림 + 턱 살짝 내림
       const pf = vcAvatarVal && photoFaceCache[vcAvatarVal];
       const myN = (pf && pf.mouth) ? pf.mouth.y : 0.62, mxN = (pf && pf.mouth) ? pf.mouth.x : 0.5;
-      const mx = ox + mxN * dw, my = oy + myN * dh, open = lvl * 24;
-      if (open > 1.5) {
+      const mx = ox + mxN * dw, my = oy + myN * dh, open = lvl * 34;
+      if (open > 0.8) {
         cx.drawImage(im, 0, myN * ih, iw, ih - myN * ih, ox, oy + myN * dh + open, dw, dh * (1 - myN)); // 턱(입 아래) 아래로
-        const oh = Math.min(20, open);
-        cx.fillStyle = "#5a1f1f"; cx.beginPath(); cx.ellipse(mx, my + oh * 0.4, 17, oh, 0, 0, TAU2); cx.fill(); // 입속(어두움)
-        cx.fillStyle = "#f7f3ea"; cx.fillRect(mx - 15, my - oh * 0.5, 30, 4); // 윗니
+        const oh = Math.min(26, open);
+        cx.fillStyle = "#5a1f1f"; cx.beginPath(); cx.ellipse(mx, my + oh * 0.4, 18, oh, 0, 0, TAU2); cx.fill(); // 입속(어두움)
+        cx.fillStyle = "#f7f3ea"; cx.fillRect(mx - 16, my - oh * 0.5, 32, 4); // 윗니
+        if (oh > 9) { cx.fillStyle = "#c66"; cx.beginPath(); cx.ellipse(mx, my + oh * 0.85, 10, oh * 0.35, 0, 0, TAU2); cx.fill(); } // 혀
       }
       // 눈 깜빡임: 검출된 눈 위치에 피부색 눈꺼풀 (VTuber 생동감)
       if (pf && pf.reye && pf.leye && blink > 0.06) {
@@ -3760,7 +3761,7 @@
     if (!vcAvVideo) { vcAvVideo = document.createElement("video"); vcAvVideo.muted = true; vcAvVideo.playsInline = true; vcAvVideo.autoplay = true; }
     if (vcAvVideo.srcObject !== vcStream) { vcAvVideo.srcObject = vcStream; try { vcAvVideo.play(); } catch (e) {} } // 배경용 카메라 프레임 소스
     ensureFaceDetector().then((fd) => { if (fd && vcAvatarOn && !vcFdTimer) { vcFdTimer = setInterval(faceTick, 130); meetChatSys("🙂 얼굴 추적이 켜졌습니다 — 아바타가 얼굴을 따라갑니다."); } }); // 얼굴 추적 시작
-    try { if (!vcAudioCtx) vcAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); if (!vcAvAn) { const src = vcAudioCtx.createMediaStreamSource(vcStream); vcAvAn = vcAudioCtx.createAnalyser(); vcAvAn.fftSize = 512; src.connect(vcAvAn); vcAvData = new Uint8Array(vcAvAn.fftSize); } } catch (e) {}
+    try { if (!vcAudioCtx) vcAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); if (vcAudioCtx.state === "suspended") vcAudioCtx.resume(); if (!vcAvAn) { const src = vcAudioCtx.createMediaStreamSource(vcStream); vcAvAn = vcAudioCtx.createAnalyser(); vcAvAn.fftSize = 512; src.connect(vcAvAn); vcAvData = new Uint8Array(vcAvAn.fftSize); } } catch (e) {}
     if (!vcAvRAF) avatarDraw();
     if (!vcAvStream) { vcAvStream = vcAvCanvas.captureStream(25); vcAvTrack = vcAvStream.getVideoTracks()[0]; }
     Object.values(vcPeers).forEach((p) => { const s = p.pc.getSenders().find((x) => x.track && x.track.kind === "video"); if (s) s.replaceTrack(vcAvTrack); });

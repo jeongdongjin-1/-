@@ -3440,7 +3440,7 @@
 
   /* ===== 가상화 아바타 (카메라 대신 캔버스 송출 + 음성 반응) ===== */
   let vcAvatarOn = false, vcAvatarKind = null, vcAvatarVal = null, vcAvatarImg = null;
-  let vcAvCanvas = null, vcAvStream = null, vcAvTrack = null, vcAvRAF = 0, vcAvAn = null, vcAvData = null, vcAvT = 0, vcAvVideo = null, vcAvatarTie = null, vcAvatarCutout = false, vcAvFx = null;
+  let vcAvCanvas = null, vcAvStream = null, vcAvTrack = null, vcAvRAF = 0, vcAvAn = null, vcAvData = null, vcAvT = 0, vcAvVideo = null, vcAvatarTie = null, vcAvatarCutout = false, vcAvFx = null, vcPersonFx = null;
   let vcFd = null, vcFdReady = null, vcFdTimer = null, vcFdBusy = false, vcFaceTarget = null, vcFace = null; // 얼굴 추적
   let vcLvlSmooth = 0, vcBlinkNext = 0, vcBlinkStart = 0, vcBlinkDouble = false; // VTuber 모션: 립싱크 평활·눈 깜빡임
   function blinkAmount() { // 0(뜸)~1(감음) — 사람처럼: 빠르게 감고 천천히 뜨고, 가끔 두 번 깜빡
@@ -3928,7 +3928,7 @@
     const blink = blinkAmount();
     // 배경: 실제 카메라 영상 유지. 캠 꺼짐 또는 인물 캐리커처(2D·3D)면 깔끔한 스튜디오 배경으로 분리.
     let fx = W / 2, fy = H * 0.42, avScale = 1.05, roll = 0; // 폴백(고정 위치)
-    const cleanBg = vcAvatarKind === "person" || vcAvatarKind === "img" || (vcAvatarKind === "face3d" && PERSONS[vcAvatarVal]);
+    const cleanBg = vcAvatarKind === "img" || (vcAvatarKind === "face3d" && PERSONS[vcAvatarVal]); // 2D 캐리커처는 실제 카메라 배경 사용
     if (vcCamOn && vcAvVideo && vcAvVideo.videoWidth && !cleanBg) {
       const vw = vcAvVideo.videoWidth, vh = vcAvVideo.videoHeight, sc = Math.max(W / vw, H / vh), dw = vw * sc, dh = vh * sc, ox = (W - dw) / 2, oy = (H - dh) / 2;
       try { cx.drawImage(vcAvVideo, ox, oy, dw, dh); } catch (e) {}
@@ -3967,11 +3967,22 @@
     const idleSway = Math.sin(vcAvT * 0.6) * 0.025, breath = 1 + Math.sin(vcAvT * 0.5) * 0.012;
     const tlvl = vcAvatarKind === "person" ? 0 : lvl; // 인물 캐리커처: 입·눈·음성연동 움직임 고정
     const bob = Math.sin(vcAvT) * 4 - tlvl * 12, scale = avScale * breath * (1 + tlvl * 0.12);
+    if (vcAvatarKind === "person") {
+      // 오프스크린에 인물 전체를 그린 뒤, 실루엣 가장자리에만 또렷한 흰 외곽선 + 약한 그림자로 실제 배경 위에서 선명하게 분리
+      if (!vcPersonFx) vcPersonFx = document.createElement("canvas");
+      if (vcPersonFx.width !== W) vcPersonFx.width = W; if (vcPersonFx.height !== H) vcPersonFx.height = H;
+      const pcx = vcPersonFx.getContext("2d"); pcx.clearRect(0, 0, W, H);
+      drawBust(pcx, fx, fy + bob * 0.4, 100 * avScale, H);
+      pcx.save(); pcx.translate(fx, fy + bob); pcx.rotate(roll + idleSway); pcx.scale(scale, scale); drawPersonAvatar(pcx, vcAvatarVal, 0, 0); pcx.restore();
+      cx.save();
+      cx.shadowColor = "rgba(0,0,0,0.4)"; cx.shadowBlur = 9; cx.shadowOffsetX = 3; cx.shadowOffsetY = 5; cx.drawImage(vcPersonFx, 0, 0); // 드롭섀도(배경 분리)
+      cx.shadowOffsetX = 0; cx.shadowOffsetY = 0; cx.shadowColor = "rgba(255,255,255,0.95)"; cx.shadowBlur = 5; cx.drawImage(vcPersonFx, 0, 0); cx.drawImage(vcPersonFx, 0, 0); // 흰 외곽선(스티커형)
+      cx.shadowColor = "transparent"; cx.shadowBlur = 0; cx.drawImage(vcPersonFx, 0, 0); // 본체(선명)
+      cx.restore();
+    } else {
     drawBust(cx, fx, fy + bob * 0.4, 100 * avScale, H); // 머리카락·얼굴 아래 어깨(상체) — 머리보다 먼저 그림
     cx.save(); cx.translate(fx, fy + bob); cx.rotate(roll + idleSway); cx.scale(scale, scale);
-    if (vcAvatarKind === "person") {
-      drawPersonAvatar(cx, vcAvatarVal, 0, 0);
-    } else if (vcAvatarKind === "animal") {
+    if (vcAvatarKind === "animal") {
       drawCuteAnimal(cx, vcAvatarVal, lvl, blink);
     } else if (vcAvatarKind === "img" && vcAvatarImg) {
       const RX = 110, RY = 142, TAU2 = Math.PI * 2;
@@ -4046,6 +4057,7 @@
       if (lvl > 0.07) { cx.fillStyle = "rgba(0,0,0,.6)"; cx.beginPath(); cx.ellipse(0, 40, 24, 5 + lvl * 26, 0, 0, 7); cx.fill(); }
     }
     cx.restore();
+    } // end else(person 외)
     } // end if(kind!=="face3d")
     cx.font = "15px sans-serif"; cx.textAlign = "left"; cx.textBaseline = "alphabetic";
     const nm = "🦸 " + meetNick(); const tw = cx.measureText(nm).width;

@@ -3610,29 +3610,38 @@
     if (img) detectPhotoFace(id, img); // 사진 속 입·눈 위치 검출(말하는 효과용)
     return img;
   }
-  // 사진 속 얼굴(입 위치) 1회 검출 → 말하는 효과 정렬
+  // 사진 속 얼굴(입·눈) 검출 → 말하는 효과를 실제 입에 정렬 (싱글턴 재사용 + 재시도)
   const photoFaceCache = {};
+  let photoFd = null, photoFdPending = null;
+  async function getPhotoFd() {
+    if (photoFd) return photoFd;
+    if (!(await ensureFaceDetector()) || !window.FaceDetection) return null;
+    try { photoFd = new window.FaceDetection({ locateFile: (f) => "https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/" + f }); photoFd.setOptions({ model: "short", minDetectionConfidence: 0.4 }); photoFd.onResults((r) => { const p = photoFdPending; photoFdPending = null; if (p) p(r); }); } catch (e) { photoFd = null; }
+    return photoFd;
+  }
+  async function detectPhotoFaceOnce(img) {
+    const fd = await getPhotoFd(); if (!fd) return null;
+    return new Promise((res) => {
+      let done = false; const fin = (v) => { if (done) return; done = true; res(v); };
+      const to = setTimeout(() => fin(null), 12000);
+      photoFdPending = (r) => {
+        clearTimeout(to);
+        const d = r.detections && r.detections[0];
+        if (d && d.keypoints && d.keypoints[3]) {
+          const kp = d.keypoints; let skin = "#e8c0a0";
+          try { const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; const x = c.getContext("2d"); x.drawImage(img, 0, 0); const fxp = Math.max(0, Math.min(img.width - 1, Math.round(((kp[0].x + kp[1].x) / 2) * img.width))); const fyp = Math.max(0, Math.min(img.height - 1, Math.round((Math.min(kp[0].y, kp[1].y) - 0.05) * img.height))); const px = x.getImageData(fxp, fyp, 1, 1).data; skin = "rgb(" + px[0] + "," + px[1] + "," + px[2] + ")"; } catch (e) {}
+          fin({ mouth: kp[3], reye: kp[0], leye: kp[1], skin });
+        } else fin(null);
+      };
+      try { const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height; cv.getContext("2d").drawImage(img, 0, 0); fd.send({ image: cv }).catch(() => fin(null)); } catch (e) { clearTimeout(to); fin(null); }
+    });
+  }
   async function detectPhotoFace(id, img) {
-    if (photoFaceCache[id] !== undefined) return;
-    photoFaceCache[id] = null;
-    try {
-      await ensureFaceDetector(); if (!window.FaceDetection) return;
-      const fd = new window.FaceDetection({ locateFile: (f) => "https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/" + f });
-      fd.setOptions({ model: "short", minDetectionConfidence: 0.5 });
-      await new Promise((res) => {
-        let done = false; const fin = (v) => { if (done) return; done = true; photoFaceCache[id] = v; try { fd.close(); } catch (e) {} res(); };
-        fd.onResults((r) => {
-          const d = r.detections && r.detections[0];
-          if (d && d.keypoints) {
-            const kp = d.keypoints; let skin = "#e8c0a0";
-            try { const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; const x = c.getContext("2d"); x.drawImage(img, 0, 0); const fxp = Math.max(0, Math.min(img.width - 1, Math.round(((kp[0].x + kp[1].x) / 2) * img.width))); const fyp = Math.max(0, Math.min(img.height - 1, Math.round((Math.min(kp[0].y, kp[1].y) - 0.05) * img.height))); const px = x.getImageData(fxp, fyp, 1, 1).data; skin = "rgb(" + px[0] + "," + px[1] + "," + px[2] + ")"; } catch (e) {}
-            fin({ mouth: kp[3], reye: kp[0], leye: kp[1], skin });
-          } else fin(null);
-        });
-        fd.send({ image: img }).catch(() => fin(null));
-        setTimeout(() => fin(null), 4000);
-      });
-    } catch (e) {}
+    if (photoFaceCache[id]) return; // 이미 검출됨
+    let r = await detectPhotoFaceOnce(img);
+    if (!r) { await new Promise((s) => setTimeout(s, 600)); r = await detectPhotoFaceOnce(img); } // 1회 재시도
+    photoFaceCache[id] = r;
+    if (r) meetChatSys("👄 입 위치를 찾았습니다 — 실제 입에서 움직입니다.");
   }
   function drawPersonAvatar(cx, id, lvl, blink) {
     const P = PERSONS[id] || {}; const skin = P.skin || "#eec6a0", hair = P.hair || "#333", R = 100, TAU = Math.PI * 2;

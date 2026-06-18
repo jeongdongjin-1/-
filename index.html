@@ -3571,6 +3571,7 @@
       segInst = new window.SelfieSegmentation({ locateFile: (f) => "https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/" + f });
       segInst.setOptions({ modelSelection: 1 });
       segInst.onResults((r) => { const p = segPending; segPending = null; if (p) p(r); });
+      if (segInst.initialize) await segInst.initialize(); // 모델 로딩 완료까지 대기(미초기화 상태 send 방지)
     } catch (e) { segInst = null; }
     return segInst;
   }
@@ -3592,7 +3593,7 @@
       catch (e) { clearTimeout(to); fin(null); }
     });
   }
-  async function removeBg(img) { let r = await removeBgOnce(img); if (!r) { await new Promise((s) => setTimeout(s, 600)); r = await removeBgOnce(img); } return r; } // 실패 시 1회 재시도
+  async function removeBg(img) { for (let i = 0; i < 3; i++) { const r = await removeBgOnce(img); if (r) return r; await new Promise((s) => setTimeout(s, 500)); } return null; } // 실패 시 최대 3회 재시도
   // 실사 사진: 위키백과(위키미디어 공용, 자유 라이선스, CORS 허용)에서 불러옴
   const PERSON_WIKI = { trump: "도널드 트럼프", biden: "조 바이든", leejm: "이재명", moon: "문재인", kimdj: "김대중", rohmh: "노무현", leemb: "이명박", parkgh: "박근혜" };
   const personPhotoCache = {};
@@ -3616,7 +3617,7 @@
   async function getPhotoFd() {
     if (photoFd) return photoFd;
     if (!(await ensureFaceDetector()) || !window.FaceDetection) return null;
-    try { photoFd = new window.FaceDetection({ locateFile: (f) => "https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/" + f }); photoFd.setOptions({ model: "short", minDetectionConfidence: 0.4 }); photoFd.onResults((r) => { const p = photoFdPending; photoFdPending = null; if (p) p(r); }); } catch (e) { photoFd = null; }
+    try { photoFd = new window.FaceDetection({ locateFile: (f) => "https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/" + f }); photoFd.setOptions({ model: "short", minDetectionConfidence: 0.3 }); photoFd.onResults((r) => { const p = photoFdPending; photoFdPending = null; if (p) p(r); }); if (photoFd.initialize) await photoFd.initialize(); } catch (e) { photoFd = null; }
     return photoFd;
   }
   async function detectPhotoFaceOnce(img) {
@@ -3627,10 +3628,17 @@
       photoFdPending = (r) => {
         clearTimeout(to);
         const d = r.detections && r.detections[0];
-        if (d && d.keypoints && d.keypoints[3]) {
-          const kp = d.keypoints; let skin = "#e8c0a0";
-          try { const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; const x = c.getContext("2d"); x.drawImage(img, 0, 0); const fxp = Math.max(0, Math.min(img.width - 1, Math.round(((kp[0].x + kp[1].x) / 2) * img.width))); const fyp = Math.max(0, Math.min(img.height - 1, Math.round((Math.min(kp[0].y, kp[1].y) - 0.05) * img.height))); const px = x.getImageData(fxp, fyp, 1, 1).data; skin = "rgb(" + px[0] + "," + px[1] + "," + px[2] + ")"; } catch (e) {}
-          fin({ mouth: kp[3], reye: kp[0], leye: kp[1], skin });
+        if (d && (d.keypoints || d.boundingBox)) {
+          const kp = d.keypoints, bb = d.boundingBox; let skin = "#e8c0a0";
+          // 눈: 키포인트 우선, 없으면 박스로 추정
+          const reye = (kp && kp[0]) ? kp[0] : (bb ? { x: bb.xCenter - bb.width * 0.20, y: bb.yCenter - bb.height * 0.10 } : { x: 0.4, y: 0.42 });
+          const leye = (kp && kp[1]) ? kp[1] : (bb ? { x: bb.xCenter + bb.width * 0.20, y: bb.yCenter - bb.height * 0.10 } : { x: 0.6, y: 0.42 });
+          // 입: 키포인트(mouthCenter) 우선, 없으면 양눈 중앙 아래 + 박스로 추정
+          let mouth = (kp && kp[3]) ? kp[3]
+            : bb ? { x: bb.xCenter, y: bb.yCenter + bb.height * 0.28 }
+            : { x: (reye.x + leye.x) / 2, y: Math.max(reye.y, leye.y) + 0.20 };
+          try { const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; const x = c.getContext("2d"); x.drawImage(img, 0, 0); const fxp = Math.max(0, Math.min(img.width - 1, Math.round(((reye.x + leye.x) / 2) * img.width))); const fyp = Math.max(0, Math.min(img.height - 1, Math.round((Math.min(reye.y, leye.y) - 0.05) * img.height))); const px = x.getImageData(fxp, fyp, 1, 1).data; skin = "rgb(" + px[0] + "," + px[1] + "," + px[2] + ")"; } catch (e) {}
+          fin({ mouth, reye, leye, skin });
         } else fin(null);
       };
       try { const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height; cv.getContext("2d").drawImage(img, 0, 0); fd.send({ image: cv }).catch(() => fin(null)); } catch (e) { clearTimeout(to); fin(null); }
@@ -3638,8 +3646,8 @@
   }
   async function detectPhotoFace(id, img) {
     if (photoFaceCache[id]) return; // 이미 검출됨
-    let r = await detectPhotoFaceOnce(img);
-    if (!r) { await new Promise((s) => setTimeout(s, 600)); r = await detectPhotoFaceOnce(img); } // 1회 재시도
+    let r = null;
+    for (let i = 0; i < 3 && !r; i++) { if (i) await new Promise((s) => setTimeout(s, 500)); r = await detectPhotoFaceOnce(img); } // 최대 3회 재시도
     photoFaceCache[id] = r;
     if (r) meetChatSys("👄 입 위치를 찾았습니다 — 실제 입에서 움직입니다.");
   }

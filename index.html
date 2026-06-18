@@ -3584,9 +3584,23 @@
         clearTimeout(to);
         try {
           if (!r || !r.segmentationMask) return fin(null);
-          const w = img.width, h = img.height, c = document.createElement("canvas"); c.width = w; c.height = h; const x = c.getContext("2d");
-          x.drawImage(r.segmentationMask, 0, 0, w, h); x.globalCompositeOperation = "source-in"; x.drawImage(img, 0, 0, w, h); x.globalCompositeOperation = "source-over";
-          const out = new Image(); out.onload = () => fin(out); out.onerror = () => fin(null); out.src = c.toDataURL("image/png");
+          const w = img.width, h = img.height;
+          // 1) 마스크를 블러로 부드럽게 그려 경계 계단현상 완화
+          const mc = document.createElement("canvas"); mc.width = w; mc.height = h; const mx = mc.getContext("2d");
+          const fr = Math.max(1, Math.round(Math.min(w, h) / 240)); // 해상도 비례 블러
+          mx.filter = "blur(" + fr + "px)"; mx.drawImage(r.segmentationMask, 0, 0, w, h); mx.filter = "none";
+          let md; try { md = mx.getImageData(0, 0, w, h).data; } catch (e) { md = null; }
+          // 2) 원본 위에 마스크 확률로 알파 생성(임계+소프트엣지) → 배경 확실히 제거
+          const oc = document.createElement("canvas"); oc.width = w; oc.height = h; const ox2 = oc.getContext("2d");
+          ox2.drawImage(img, 0, 0, w, h);
+          if (md) {
+            const out = ox2.getImageData(0, 0, w, h), od = out.data;
+            for (let i = 0; i < od.length; i += 4) { let a = (md[i] / 255 - 0.5) / 0.25; a = a < 0 ? 0 : a > 1 ? 1 : a; od[i + 3] = (a * 255) | 0; }
+            ox2.putImageData(out, 0, 0);
+          } else { // getImageData 불가 시 기존 합성으로 폴백
+            ox2.clearRect(0, 0, w, h); ox2.drawImage(mc, 0, 0, w, h); ox2.globalCompositeOperation = "source-in"; ox2.drawImage(img, 0, 0, w, h); ox2.globalCompositeOperation = "source-over";
+          }
+          const out2 = new Image(); out2.onload = () => fin(out2); out2.onerror = () => fin(null); out2.src = oc.toDataURL("image/png");
         } catch (e) { fin(null); }
       };
       try { const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height; cv.getContext("2d").drawImage(img, 0, 0); seg.send({ image: cv }).catch(() => fin(null)); }

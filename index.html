@@ -4525,8 +4525,11 @@
   // PWA: 서비스워커 등록 (http/https에서만 — file://·Electron 제외)
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("sw.js").catch(() => {});
+      navigator.serviceWorker.register("sw.js").then((reg) => { try { reg.update(); } catch (e) {} }).catch(() => {});
     });
+    // 새 버전(서비스워커)이 적용되면 자동으로 한 번 새로고침 → 항상 최신 버전 사용
+    let swReloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => { if (swReloaded) return; swReloaded = true; location.reload(); });
   }
 </script>
 </body>

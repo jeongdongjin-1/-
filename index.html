@@ -3563,6 +3563,7 @@
     rohmh: { label: "노무현", skin: "#e7ba90", face: "square", hair: "#3a3a3a", hairStyle: "side", glasses: "clear", tie: "#a5642a", brow: "#333", smile: "soft", age: 1 },
     leemb: { label: "이명박", skin: "#e7ba90", face: "square", hair: "#2a2a2a", hairStyle: "bald", glasses: "clear", tie: "#555555", smile: "soft", age: 1 },
     parkgh: { label: "박근혜", skin: "#eecbb0", face: "oval", hair: "#2a2320", hairStyle: "updo", glasses: "none", tie: null, smile: "soft", age: 1, female: true },
+    kim: { label: "김정은", skin: "#e8bd90", face: "round", hair: "#121212", hairStyle: "back", glasses: "none", tie: "#33373d", smile: "soft", age: 0 },
   };
   // 사진 배경 제거 (MediaPipe Selfie Segmentation) — 인물만 컷아웃
   let segReady = null;
@@ -3618,7 +3619,7 @@
   }
   async function removeBg(img) { for (let i = 0; i < 3; i++) { const r = await removeBgOnce(img); if (r) return r; await new Promise((s) => setTimeout(s, 500)); } return null; } // 실패 시 최대 3회 재시도
   // 실사 사진: 위키백과(위키미디어 공용, 자유 라이선스, CORS 허용)에서 불러옴
-  const PERSON_WIKI = { trump: "도널드 트럼프", biden: "조 바이든", leejm: "이재명", moon: "문재인", kimdj: "김대중", rohmh: "노무현", leemb: "이명박", parkgh: "박근혜" };
+  const PERSON_WIKI = { trump: "도널드 트럼프", biden: "조 바이든", leejm: "이재명", moon: "문재인", kimdj: "김대중", rohmh: "노무현", leemb: "이명박", parkgh: "박근혜", kim: "김정은" };
   const personPhotoCache = {};
   async function loadPersonPhoto(id) {
     if (personPhotoCache[id] !== undefined) return personPhotoCache[id];
@@ -4193,7 +4194,7 @@
   function meetVoiceCycle() { meetSetVoice(vcVoiceMode === "off" ? "deep" : vcVoiceMode === "deep" ? "high" : "off"); }
   function voiceFxCleanup() { if (vcVoiceCtx) { try { vcVoiceCtx.close(); } catch (e) {} } vcVoiceCtx = null; vcVoiceJungle = null; vcVoiceDest = null; vcVoiceTrack = null; vcVoiceMode = "off"; }
   // 아바타별 캐릭터 보이스(딥페이크 아님 — 본인 목소리를 변조). 음수=저음, 양수=고음
-  const PERSON_VOICE = { trump: -0.3, biden: -0.35, leejm: -0.2, moon: -0.3, kimdj: -0.42, rohmh: -0.2, leemb: -0.32, parkgh: 0.35 };
+  const PERSON_VOICE = { trump: -0.3, biden: -0.35, leejm: -0.2, moon: -0.3, kimdj: -0.42, rohmh: -0.2, leemb: -0.32, parkgh: 0.35, kim: -0.28 };
   const ANIMAL_VOICE = { cat: 0.5, dog: -0.18, bear: -0.45, rabbit: 0.55, fox: 0.3, panda: -0.2, mouse: 0.6 };
   function meetVoicePitch(p) { // 아바타별 보이스 적용(0이면 원래 목소리)
     if (!p) { const orig = vcStream && vcStream.getAudioTracks()[0]; Object.values(vcPeers).forEach((pe) => { const s = pe.pc.getSenders().find((x) => x.track && x.track.kind === "audio"); if (s && orig) s.replaceTrack(orig); }); vcVoiceMode = "off"; const b = $("meetVoice"); if (b) { b.classList.remove("live"); b.textContent = "🎚"; } return; }

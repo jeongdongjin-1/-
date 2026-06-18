@@ -3924,9 +3924,9 @@
     const rawLvl = avatarLevel();
     vcLvlSmooth += (rawLvl - vcLvlSmooth) * 0.45; const lvl = vcLvlSmooth; // 립싱크 부드럽게
     const blink = blinkAmount();
-    // 배경: 실제 카메라 영상 유지(사람·배경 그대로). 캠이 꺼졌으면 그라데이션.
+    // 배경: 실제 카메라 영상 유지(사람·배경 그대로). 캠이 꺼졌거나 인물 캐리커처면 깔끔한 배경으로 명확히 분리.
     let fx = W / 2, fy = H * 0.42, avScale = 1.05, roll = 0; // 폴백(고정 위치)
-    if (vcCamOn && vcAvVideo && vcAvVideo.videoWidth) {
+    if (vcCamOn && vcAvVideo && vcAvVideo.videoWidth && vcAvatarKind !== "person") {
       const vw = vcAvVideo.videoWidth, vh = vcAvVideo.videoHeight, sc = Math.max(W / vw, H / vh), dw = vw * sc, dh = vh * sc, ox = (W - dw) / 2, oy = (H - dh) / 2;
       try { cx.drawImage(vcAvVideo, ox, oy, dw, dh); } catch (e) {}
       if (vcFaceTarget) { // 검출된 얼굴 위치/크기/기울기로 부드럽게 이동 (얼굴보다 크게·살짝 위로 → 머리까지 감쌈)
@@ -3962,11 +3962,12 @@
     if (vcAvatarKind !== "face3d") {
     // VTuber식 생동감: 머리 기울기 + 미세한 idle 흔들림 + 숨쉬기 + 말할 때 들썩임
     const idleSway = Math.sin(vcAvT * 0.6) * 0.025, breath = 1 + Math.sin(vcAvT * 0.5) * 0.012;
-    const bob = Math.sin(vcAvT) * 4 - lvl * 12, scale = avScale * breath * (1 + lvl * 0.12);
+    const tlvl = vcAvatarKind === "person" ? 0 : lvl; // 인물 캐리커처: 입·눈·음성연동 움직임 고정
+    const bob = Math.sin(vcAvT) * 4 - tlvl * 12, scale = avScale * breath * (1 + tlvl * 0.12);
     drawBust(cx, fx, fy + bob * 0.4, 100 * avScale, H); // 머리카락·얼굴 아래 어깨(상체) — 머리보다 먼저 그림
     cx.save(); cx.translate(fx, fy + bob); cx.rotate(roll + idleSway); cx.scale(scale, scale);
     if (vcAvatarKind === "person") {
-      drawPersonAvatar(cx, vcAvatarVal, lvl, blink);
+      drawPersonAvatar(cx, vcAvatarVal, 0, 0);
     } else if (vcAvatarKind === "animal") {
       drawCuteAnimal(cx, vcAvatarVal, lvl, blink);
     } else if (vcAvatarKind === "img" && vcAvatarImg) {

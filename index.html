@@ -3768,11 +3768,11 @@
     try { const p = vcFm.send({ image: vcAvVideo }); if (p && p.catch) p.catch(() => { vcFmBusy = false; }); } catch (e) { vcFmBusy = false; }
   }
   const HEAD_STYLES = {
-    mint: { skin: 0x8fe3c9, hair: 0x36b894, ear: 0x8fe3c9, mouth: 0x9b3b46, label: "🟢 민트 캐릭터" },
-    peach: { skin: 0xffd6b0, hair: 0x6b4a2b, ear: 0xffd6b0, mouth: 0xb3424a, label: "🟠 피치 캐릭터" },
-    sky: { skin: 0xbcd4ff, hair: 0x4f6dd6, ear: 0xbcd4ff, mouth: 0x7a3a52, label: "🔵 스카이 캐릭터" },
-    robot: { skin: 0xc2cad8, hair: 0x5566aa, ear: 0x8893a8, mouth: 0x222a3a, label: "🤖 로봇" },
-    fox: { skin: 0xff9b54, hair: 0xe8762f, ear: 0xff9b54, mouth: 0x5a1f1f, label: "🦊 여우" },
+    mint: { skin: 0x8fe3c9, hair: 0x2f9e7e, ear: 0x8fe3c9, mouth: 0x9b3b46, iris: 0x1f6f66, cloth: 0x27314d, label: "🟢 민트 캐릭터" },
+    peach: { skin: 0xffd6b0, hair: 0x6b4a2b, ear: 0xffd6b0, mouth: 0xb3424a, iris: 0x5b3a1f, cloth: 0x6e3540, label: "🟠 피치 캐릭터" },
+    sky: { skin: 0xbcd4ff, hair: 0x4f6dd6, ear: 0xbcd4ff, mouth: 0x7a3a52, iris: 0x2f4db0, cloth: 0x263a66, label: "🔵 스카이 캐릭터" },
+    robot: { skin: 0xc2cad8, hair: 0x5566aa, ear: 0x8893a8, mouth: 0x222a3a, iris: 0x33d6ff, cloth: 0x36456a, label: "🤖 로봇" },
+    fox: { skin: 0xff9b54, hair: 0xe8762f, ear: 0xff9b54, mouth: 0x5a1f1f, iris: 0x6b3a12, cloth: 0x5a3a22, label: "🦊 여우" },
   };
   let head3d = null;
   function ensureHead3D() {
@@ -3783,52 +3783,95 @@
     const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
     renderer.setSize(W, H, false); renderer.setClearColor(0x000000, 0);
     const scene = new THREE.Scene();
-    const cam = new THREE.PerspectiveCamera(34, 1, 0.1, 100); cam.position.set(0, 0, 7);
-    scene.add(new THREE.AmbientLight(0xffffff, 0.78));
-    const dl = new THREE.DirectionalLight(0xffffff, 0.95); dl.position.set(1.2, 1.6, 2.6); scene.add(dl);
-    const rim = new THREE.DirectionalLight(0x88aaff, 0.45); rim.position.set(-2, -1, -2); scene.add(rim);
-    const grp = new THREE.Group(); scene.add(grp);
+    const cam = new THREE.PerspectiveCamera(34, 1, 0.1, 100); cam.position.set(0, -0.2, 6.9); cam.lookAt(0, -0.05, 0);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.82));
+    const dl = new THREE.DirectionalLight(0xffffff, 0.95); dl.position.set(1.2, 1.8, 2.6); scene.add(dl);
+    const rim = new THREE.DirectionalLight(0x9ec0ff, 0.5); rim.position.set(-2.2, -0.5, -1.5); scene.add(rim);
     const mk = (c, r = 0.6, m = 0.05) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m });
-    const skinMat = mk(0x8fe3c9), hairMat = mk(0x36b894), earMat = mk(0x8fe3c9), mouthMat = mk(0x9b3b46, 0.5);
-    const eyeWhiteMat = mk(0xffffff, 0.3), irisMat = mk(0x222831, 0.25), browMat = mk(0x333333, 0.6);
-    const head = new THREE.Mesh(new THREE.SphereGeometry(1.5, 48, 48), skinMat); head.scale.set(1, 1.12, 0.92); grp.add(head);
-    const hair = new THREE.Mesh(new THREE.SphereGeometry(1.55, 48, 32, 0, Math.PI * 2, 0, Math.PI * 0.55), hairMat); hair.scale.set(1, 1.12, 0.92); grp.add(hair);
+    const skinMat = mk(0x8fe3c9), hairMat = mk(0x2f9e7e), earMat = mk(0x8fe3c9), mouthMat = mk(0x9b3b46, 0.5);
+    const eyeWhiteMat = mk(0xffffff, 0.25), irisMat = mk(0x1f6f66, 0.2), pupilMat = mk(0x16181d, 0.2), clothMat = mk(0x27314d, 0.75), browMat = mk(0x333333, 0.6);
+    const hiMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    const blushMat = new THREE.MeshBasicMaterial({ color: 0xff8a8a, transparent: true, opacity: 0 });
+    const root = new THREE.Group(); scene.add(root);
+    // ---- 상체(목·어깨·옷·옷깃) ----
+    const body = new THREE.Group(); root.add(body);
+    const torso = new THREE.Mesh(new THREE.CylinderGeometry(1.55, 2.15, 2.4, 32), clothMat); torso.position.set(0, -3.1, 0); body.add(torso);
+    const shoulder = new THREE.Mesh(new THREE.SphereGeometry(2.05, 32, 24, 0, Math.PI * 2, 0, Math.PI * 0.5), clothMat); shoulder.position.set(0, -2.25, 0); shoulder.scale.set(1.18, 0.72, 0.92); body.add(shoulder);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.62, 1.05, 24), skinMat); neck.position.set(0, -1.42, 0.04); body.add(neck);
+    const collar = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.17, 12, 28), clothMat); collar.position.set(0, -1.72, 0.1); collar.rotation.x = Math.PI / 2; collar.scale.set(1, 0.7, 1); body.add(collar);
+    // ---- 머리 ----
+    const headPivot = new THREE.Group(); root.add(headPivot);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(1.5, 48, 48), skinMat); head.scale.set(1, 1.12, 0.92); headPivot.add(head);
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.15, 18, 18), skinMat); nose.position.set(0, -0.12, 1.52); nose.scale.set(1, 1.2, 1); headPivot.add(nose);
+    const cheekGeo = new THREE.SphereGeometry(0.34, 16, 16);
+    const blushL = new THREE.Mesh(cheekGeo, blushMat); blushL.position.set(-0.8, -0.28, 1.16); blushL.scale.set(1, 0.55, 0.35); headPivot.add(blushL);
+    const blushR = new THREE.Mesh(cheekGeo, blushMat); blushR.position.set(0.8, -0.28, 1.16); blushR.scale.set(1, 0.55, 0.35); headPivot.add(blushR);
     const earGeo = new THREE.SphereGeometry(0.32, 24, 24);
-    const earL = new THREE.Mesh(earGeo, earMat); earL.position.set(-1.45, 0, 0); grp.add(earL);
-    const earR = new THREE.Mesh(earGeo, earMat); earR.position.set(1.45, 0, 0); grp.add(earR);
-    const eyeGeo = new THREE.SphereGeometry(0.30, 28, 28);
-    const eyeL = new THREE.Mesh(eyeGeo, eyeWhiteMat); eyeL.position.set(-0.52, 0.18, 1.26); eyeL.scale.set(1, 1, 0.5); grp.add(eyeL);
-    const eyeR = new THREE.Mesh(eyeGeo, eyeWhiteMat); eyeR.position.set(0.52, 0.18, 1.26); eyeR.scale.set(1, 1, 0.5); grp.add(eyeR);
-    const irisGeo = new THREE.SphereGeometry(0.15, 20, 20);
-    const irisL = new THREE.Mesh(irisGeo, irisMat); irisL.position.set(-0.52, 0.18, 1.40); grp.add(irisL);
-    const irisR = new THREE.Mesh(irisGeo, irisMat); irisR.position.set(0.52, 0.18, 1.40); grp.add(irisR);
-    const lidGeo = new THREE.SphereGeometry(0.34, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);
-    const lidL = new THREE.Mesh(lidGeo, skinMat); lidL.position.set(-0.52, 0.20, 1.50); lidL.scale.set(1, 0.01, 0.6); grp.add(lidL);
-    const lidR = new THREE.Mesh(lidGeo, skinMat); lidR.position.set(0.52, 0.20, 1.50); lidR.scale.set(1, 0.01, 0.6); grp.add(lidR);
-    const browGeo = new THREE.BoxGeometry(0.5, 0.09, 0.12);
-    const browL = new THREE.Mesh(browGeo, browMat); browL.position.set(-0.52, 0.62, 1.42); grp.add(browL);
-    const browR = new THREE.Mesh(browGeo, browMat); browR.position.set(0.52, 0.62, 1.42); grp.add(browR);
-    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.16, 20, 20), skinMat); nose.position.set(0, -0.12, 1.52); nose.scale.set(1, 1.2, 1); grp.add(nose);
-    const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.42, 28, 20), mouthMat); mouth.position.set(0, -0.72, 1.28); mouth.scale.set(1, 0.12, 0.4); grp.add(mouth);
+    const earL = new THREE.Mesh(earGeo, earMat); earL.position.set(-1.45, 0, 0); headPivot.add(earL);
+    const earR = new THREE.Mesh(earGeo, earMat); earR.position.set(1.45, 0, 0); headPivot.add(earR);
+    // 눈: 공막+홍채+동공+하이라이트(살아있는 눈)
+    function makeEye(sx) {
+      const g = new THREE.Group(); g.position.set(sx, 0.18, 0);
+      const wsph = new THREE.Mesh(new THREE.SphereGeometry(0.32, 28, 28), eyeWhiteMat); wsph.position.set(0, 0, 1.22); wsph.scale.set(1.05, 1, 0.5); g.add(wsph);
+      const pg = new THREE.Group(); pg.position.set(0, 0, 1.4); g.add(pg);
+      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.17, 22, 22), irisMat); iris.scale.set(1, 1, 0.55); pg.add(iris);
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.09, 18, 18), pupilMat); pupil.position.set(0, 0, 0.06); pupil.scale.set(1, 1, 0.5); pg.add(pupil);
+      const hi = new THREE.Mesh(new THREE.SphereGeometry(0.045, 10, 10), hiMat); hi.position.set(0.06, 0.08, 0.12); pg.add(hi);
+      headPivot.add(g); return { pg, pupil };
+    }
+    const eyeL = makeEye(-0.52), eyeR = makeEye(0.52);
+    const lidGeo = new THREE.SphereGeometry(0.36, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);
+    const lidL = new THREE.Mesh(lidGeo, skinMat); lidL.position.set(-0.52, 0.22, 1.44); lidL.scale.set(1, 0.01, 0.62); headPivot.add(lidL);
+    const lidR = new THREE.Mesh(lidGeo, skinMat); lidR.position.set(0.52, 0.22, 1.44); lidR.scale.set(1, 0.01, 0.62); headPivot.add(lidR);
+    const browGeo = new THREE.BoxGeometry(0.46, 0.09, 0.12);
+    const browL = new THREE.Mesh(browGeo, browMat); browL.position.set(-0.52, 0.6, 1.4); headPivot.add(browL);
+    const browR = new THREE.Mesh(browGeo, browMat); browR.position.set(0.52, 0.6, 1.4); headPivot.add(browR);
+    const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.42, 28, 20), mouthMat); mouth.position.set(0, -0.72, 1.3); mouth.scale.set(1, 0.12, 0.4); headPivot.add(mouth);
+    // 머리카락(관성 흔들림용 그룹)
+    const hairGrp = new THREE.Group(); headPivot.add(hairGrp);
+    const hairTop = new THREE.Mesh(new THREE.SphereGeometry(1.56, 48, 32, 0, Math.PI * 2, 0, Math.PI * 0.6), hairMat); hairTop.scale.set(1, 1.12, 0.95); hairGrp.add(hairTop);
+    const hairSideGeo = new THREE.SphereGeometry(0.45, 18, 24);
+    const hairSL = new THREE.Mesh(hairSideGeo, hairMat); hairSL.position.set(-1.36, -0.25, 0.15); hairSL.scale.set(0.55, 1.7, 0.8); hairGrp.add(hairSL);
+    const hairSR = new THREE.Mesh(hairSideGeo, hairMat); hairSR.position.set(1.36, -0.25, 0.15); hairSR.scale.set(0.55, 1.7, 0.8); hairGrp.add(hairSR);
+    const hairBack = new THREE.Mesh(new THREE.SphereGeometry(1.46, 32, 24), hairMat); hairBack.position.set(0, -0.1, -0.55); hairBack.scale.set(1, 1.22, 0.78); hairGrp.add(hairBack);
+    // 애니메이션 상태
+    let t0 = Date.now(), gaze = { x: 0, y: 0, tx: 0, ty: 0, next: 0 }, hairY = 0, hairZ = 0, foxEars = false;
     head3d = {
-      canvas, renderer, scene, cam, grp,
-      refs: { skinMat, hairMat, earMat, mouthMat, earL, earR, irisL, irisR, lidL, lidR, browL, browR, mouth },
-      style: null,
+      canvas, renderer, scene, cam, style: null,
       setStyle(name) {
         const s = HEAD_STYLES[name] || HEAD_STYLES.mint; this.style = name;
-        skinMat.color.setHex(s.skin); hairMat.color.setHex(s.hair); earMat.color.setHex(s.ear); mouthMat.color.setHex(s.mouth);
+        skinMat.color.setHex(s.skin); hairMat.color.setHex(s.hair); earMat.color.setHex(s.ear); mouthMat.color.setHex(s.mouth); irisMat.color.setHex(s.iris); clothMat.color.setHex(s.cloth);
+        foxEars = name === "fox";
         if (name === "fox") { earL.scale.set(0.8, 1.7, 0.6); earR.scale.set(0.8, 1.7, 0.6); earL.position.set(-1.0, 1.35, 0); earR.position.set(1.0, 1.35, 0); }
         else if (name === "robot") { earL.scale.set(0.5, 0.5, 1.5); earR.scale.set(0.5, 0.5, 1.5); earL.position.set(-1.45, 0, 0); earR.position.set(1.45, 0, 0); }
         else { earL.scale.set(1, 1, 1); earR.scale.set(1, 1, 1); earL.position.set(-1.45, 0, 0); earR.position.set(1.45, 0, 0); }
       },
       render(p) {
-        const r = this.refs;
-        grp.rotation.set(p.pitch || 0, p.yaw || 0, p.roll || 0);
-        const mo = p.mouth || 0; r.mouth.scale.set(1 + mo * 0.2, 0.12 + mo * 0.95, 0.4 + mo * 0.25); r.mouth.position.y = -0.72 - mo * 0.12;
-        r.lidL.scale.set(1, 0.01 + (p.blinkL || 0), 0.6); r.lidR.scale.set(1, 0.01 + (p.blinkR || 0), 0.6);
-        r.browL.position.y = 0.62 + (p.brow || 0) * 0.13; r.browR.position.y = 0.62 + (p.brow || 0) * 0.13;
-        r.irisL.position.x = -0.52 + (p.yaw || 0) * 0.15; r.irisR.position.x = 0.52 + (p.yaw || 0) * 0.15;
-        r.irisL.position.y = 0.18 - (p.pitch || 0) * 0.12; r.irisR.position.y = 0.18 - (p.pitch || 0) * 0.12;
+        const now = Date.now(), tt = (now - t0) / 1000;
+        const yaw = p.yaw || 0, pitch = p.pitch || 0, roll = p.roll || 0, lvl = p.level || 0;
+        // 머리 자세 + 말할 때 미세한 끄덕임 + idle 흔들림
+        headPivot.rotation.set(pitch + Math.sin(tt * 2.0) * 0.012 + lvl * Math.sin(tt * 9) * 0.02, yaw, roll + Math.sin(tt * 0.7) * 0.02);
+        // 상체: 호흡, 체중이동, 머리 따라 살짝 기울임
+        root.position.x = Math.sin(tt * 0.5) * 0.05 + yaw * 0.18; root.rotation.z = Math.sin(tt * 0.6) * 0.018 + roll * 0.12;
+        body.scale.set(1, 1 + Math.sin(tt * 1.1) * 0.02, 1); body.rotation.z = roll * 0.18; body.rotation.y = yaw * 0.25;
+        // 머리카락 관성(고개가 돌면 뒤늦게 따라와 출렁임) + 중력 idle
+        hairY += (yaw - hairY) * 0.12; hairZ += (roll - hairZ) * 0.12;
+        hairGrp.rotation.y = (hairY - yaw) * 1.1; hairGrp.rotation.z = (hairZ - roll) * 1.1 + Math.sin(tt * 1.3) * 0.025;
+        // 입(비셈): 말소리에 따라 가로/세로 변형
+        const mo = p.mouth || 0, vph = (Math.sin(tt * 13) * 0.5 + 0.5) * Math.min(1, mo * 3);
+        mouth.scale.set((1 + mo * 0.25) * (1 + vph * 0.22), 0.12 + mo * 1.0, 0.4 + mo * 0.3); mouth.position.y = -0.72 - mo * 0.12;
+        // 눈꺼풀(깜빡임)
+        lidL.scale.set(1, 0.01 + (p.blinkL || 0), 0.62); lidR.scale.set(1, 0.01 + (p.blinkR || 0), 0.62);
+        // 눈썹: 표정 + 말할 때 살짝 들썩 + 각도
+        const bb = 0.6 + (p.brow || 0) * 0.14 + lvl * 0.04 + Math.sin(tt * 2.2) * 0.008;
+        browL.position.y = bb; browR.position.y = bb; browL.rotation.z = (p.brow || 0) * 0.06; browR.rotation.z = -(p.brow || 0) * 0.06;
+        // 시선: 가끔 다른 곳을 보는 미세 안구운동(saccade) + 머리 방향 따라봄
+        if (now > gaze.next) { gaze.tx = (Math.random() * 2 - 1) * 0.5; gaze.ty = (Math.random() * 2 - 1) * 0.3; gaze.next = now + 700 + Math.random() * 1900; }
+        gaze.x += (gaze.tx - gaze.x) * 0.22; gaze.y += (gaze.ty - gaze.y) * 0.22;
+        const gx = (gaze.x + yaw * 1.4) * 0.07, gy = (gaze.y - pitch * 1.2) * 0.06, dil = 1 + lvl * 0.5;
+        [eyeL, eyeR].forEach((e) => { e.pg.position.x = gx; e.pg.position.y = gy; e.pupil.scale.set(dil, dil, 0.5); });
+        // 볼 홍조: 크게 말할 때 살짝
+        blushMat.opacity = Math.min(0.45, lvl * 0.55);
         renderer.render(scene, cam);
       },
       dispose() { try { renderer.dispose(); } catch (e) {} head3d = null; },
@@ -3864,14 +3907,14 @@
         sm.mouth += (aMouth - sm.mouth) * 0.5;
         const blL = m ? tgt.blinkL : auto, blR = m ? tgt.blinkR : auto;
         sm.blinkL += (blL - sm.blinkL) * 0.5; sm.blinkR += (blR - sm.blinkR) * 0.5; sm.brow += ((tgt.brow || 0) - sm.brow) * 0.3;
-        h3.render({ yaw: sm.yaw, pitch: sm.pitch, roll: sm.roll, mouth: sm.mouth, blinkL: sm.blinkL, blinkR: sm.blinkR, brow: sm.brow });
-        // 실제 얼굴 위치·크기를 따라 3D 헤드를 카메라 영상 위에 올림
-        let hx = W / 2, hy = H * 0.46, hs = Math.min(W, H) * 0.96 * (1 + lvl * 0.05);
+        h3.render({ yaw: sm.yaw, pitch: sm.pitch, roll: sm.roll, mouth: sm.mouth, blinkL: sm.blinkL, blinkR: sm.blinkR, brow: sm.brow, level: lvl });
+        // 실제 얼굴 위치·크기를 따라 3D 헤드+상체를 카메라 영상 위에 올림
+        let hx = W / 2, hy = H * 0.42, hs = Math.min(W, H) * 1.3 * (1 + lvl * 0.04);
         if (vcCamOn && vcAvVideo && vcAvVideo.videoWidth && m && m.cx != null) {
           const vw = vcAvVideo.videoWidth, vh = vcAvVideo.videoHeight, vsc = Math.max(W / vw, H / vh), vdw = vw * vsc, vdh = vh * vsc, vox = (W - vdw) / 2, voy = (H - vdh) / 2;
-          const tx = vox + m.cx * vdw, ty = voy + m.cy * vdh, tS = Math.max(120, Math.min(W * 1.5, m.size * vdh * 3.0));
+          const tx = vox + m.cx * vdw, ty = voy + m.cy * vdh, tS = Math.max(160, Math.min(W * 2.2, m.size * vdh * 4.4));
           if (!vcFace3) vcFace3 = { x: tx, y: ty, s: tS }; else { vcFace3.x += (tx - vcFace3.x) * 0.35; vcFace3.y += (ty - vcFace3.y) * 0.35; vcFace3.s += (tS - vcFace3.s) * 0.3; }
-          hx = vcFace3.x; hy = vcFace3.y - vcFace3.s * 0.04; hs = vcFace3.s * (1 + lvl * 0.04); // 머리 중심이 얼굴보다 살짝 위
+          hx = vcFace3.x; hy = vcFace3.y - vcFace3.s * 0.08; hs = vcFace3.s * (1 + lvl * 0.04); // 헤드 중심이 얼굴보다 살짝 위(상체는 아래로)
         }
         cx.save(); cx.shadowColor = "rgba(0,0,0,.35)"; cx.shadowBlur = 22; cx.shadowOffsetY = 10;
         try { cx.drawImage(h3.canvas, hx - hs / 2, hy - hs / 2, hs, hs); } catch (e) {}

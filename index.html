@@ -1071,6 +1071,17 @@
   ];
 
   const $ = (id) => document.getElementById(id);
+  // 팝업 대신 비차단 토스트 + confirm 자동 허용(사용자 요청: 알람 띄우지 말고 다 진행)
+  function showToast(msg) {
+    try {
+      let t = document.getElementById("appToast");
+      if (!t) { t = document.createElement("div"); t.id = "appToast"; t.style.cssText = "position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:99999;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none"; document.body.appendChild(t); }
+      const b = document.createElement("div"); b.textContent = String(msg); b.style.cssText = "background:rgba(20,22,30,.92);color:#fff;font-size:13px;font-weight:600;padding:10px 16px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.3);max-width:80vw;text-align:center;opacity:0;transition:opacity .2s";
+      t.appendChild(b); requestAnimationFrame(() => { b.style.opacity = "1"; });
+      setTimeout(() => { b.style.opacity = "0"; setTimeout(() => { try { t.removeChild(b); } catch (e) {} }, 250); }, 2600);
+    } catch (e) { try { console.log("[toast]", msg); } catch (_) {} }
+  }
+  try { window.alert = showToast; window.confirm = function () { return true; }; } catch (e) {}
   const apiKeyInput = $("apiKey");
   const statusEl = $("status");
   const gridEl = $("grid");

@@ -3572,7 +3572,14 @@
       fd.setOptions({ model: "short", minDetectionConfidence: 0.5 });
       await new Promise((res) => {
         let done = false; const fin = (v) => { if (done) return; done = true; photoFaceCache[id] = v; try { fd.close(); } catch (e) {} res(); };
-        fd.onResults((r) => { const d = r.detections && r.detections[0]; if (d && d.keypoints) fin({ mouth: d.keypoints[3], reye: d.keypoints[0], leye: d.keypoints[1] }); else fin(null); });
+        fd.onResults((r) => {
+          const d = r.detections && r.detections[0];
+          if (d && d.keypoints) {
+            const kp = d.keypoints; let skin = "#e8c0a0";
+            try { const c = document.createElement("canvas"); c.width = img.width; c.height = img.height; const x = c.getContext("2d"); x.drawImage(img, 0, 0); const fxp = Math.max(0, Math.min(img.width - 1, Math.round(((kp[0].x + kp[1].x) / 2) * img.width))); const fyp = Math.max(0, Math.min(img.height - 1, Math.round((Math.min(kp[0].y, kp[1].y) - 0.05) * img.height))); const px = x.getImageData(fxp, fyp, 1, 1).data; skin = "rgb(" + px[0] + "," + px[1] + "," + px[2] + ")"; } catch (e) {}
+            fin({ mouth: kp[3], reye: kp[0], leye: kp[1], skin });
+          } else fin(null);
+        });
         fd.send({ image: img }).catch(() => fin(null));
         setTimeout(() => fin(null), 4000);
       });
@@ -3664,6 +3671,11 @@
         const oh = Math.min(20, open);
         cx.fillStyle = "#5a1f1f"; cx.beginPath(); cx.ellipse(mx, my + oh * 0.4, 17, oh, 0, 0, TAU2); cx.fill(); // 입속(어두움)
         cx.fillStyle = "#f7f3ea"; cx.fillRect(mx - 15, my - oh * 0.5, 30, 4); // 윗니
+      }
+      // 눈 깜빡임: 검출된 눈 위치에 피부색 눈꺼풀 (VTuber 생동감)
+      if (pf && pf.reye && pf.leye && blink > 0.06) {
+        cx.fillStyle = pf.skin || "#e8c0a0";
+        [pf.reye, pf.leye].forEach((ey) => { const ex = ox + ey.x * dw, ee = oy + ey.y * dh; cx.beginPath(); cx.ellipse(ex, ee, dw * 0.075, dh * 0.05 * blink + 1, 0, 0, TAU2); cx.fill(); });
       }
       cx.restore();
       cx.lineWidth = 6; cx.strokeStyle = "#fff"; cx.beginPath(); cx.ellipse(0, 0, RX, RY, 0, 0, TAU2); cx.stroke();

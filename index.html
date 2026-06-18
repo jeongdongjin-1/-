@@ -3924,9 +3924,10 @@
     const rawLvl = avatarLevel();
     vcLvlSmooth += (rawLvl - vcLvlSmooth) * 0.45; const lvl = vcLvlSmooth; // 립싱크 부드럽게
     const blink = blinkAmount();
-    // 배경: 실제 카메라 영상 유지(사람·배경 그대로). 캠이 꺼졌거나 인물 캐리커처면 깔끔한 배경으로 명확히 분리.
+    // 배경: 실제 카메라 영상 유지. 캠 꺼짐 또는 인물 캐리커처(2D·3D)면 깔끔한 스튜디오 배경으로 분리.
     let fx = W / 2, fy = H * 0.42, avScale = 1.05, roll = 0; // 폴백(고정 위치)
-    if (vcCamOn && vcAvVideo && vcAvVideo.videoWidth && vcAvatarKind !== "person") {
+    const cleanBg = vcAvatarKind === "person" || (vcAvatarKind === "face3d" && PERSONS[vcAvatarVal]);
+    if (vcCamOn && vcAvVideo && vcAvVideo.videoWidth && !cleanBg) {
       const vw = vcAvVideo.videoWidth, vh = vcAvVideo.videoHeight, sc = Math.max(W / vw, H / vh), dw = vw * sc, dh = vh * sc, ox = (W - dw) / 2, oy = (H - dh) / 2;
       try { cx.drawImage(vcAvVideo, ox, oy, dw, dh); } catch (e) {}
       if (vcFaceTarget) { // 검출된 얼굴 위치/크기/기울기로 부드럽게 이동 (얼굴보다 크게·살짝 위로 → 머리까지 감쌈)
@@ -3934,7 +3935,7 @@
         if (!vcFace) vcFace = { x: tx, y: ty, s: ts, r: tr }; else { vcFace.x += (tx - vcFace.x) * 0.3; vcFace.y += (ty - vcFace.y) * 0.3; vcFace.s += (ts - vcFace.s) * 0.3; vcFace.r += (tr - (vcFace.r || 0)) * 0.25; }
         fx = vcFace.x; fy = vcFace.y; avScale = vcFace.s; roll = vcFace.r || 0;
       }
-    } else { const g = cx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#1b2a4a"); g.addColorStop(1, "#0b1020"); cx.fillStyle = g; cx.fillRect(0, 0, W, H); }
+    } else { const g = cx.createRadialGradient(W / 2, H * 0.38, H * 0.08, W / 2, H * 0.55, H * 0.95); g.addColorStop(0, "#f3f6fb"); g.addColorStop(0.6, "#dde6f0"); g.addColorStop(1, "#b8c5d8"); cx.fillStyle = g; cx.fillRect(0, 0, W, H); } // 깔끔한 스튜디오 배경
     if (vcAvatarKind === "face3d") { // 3D 입체 헤드: 내 얼굴 실시간 추적값으로 구동
       const h3 = ensureHead3D();
       if (h3) {

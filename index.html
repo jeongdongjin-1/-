@@ -4011,8 +4011,8 @@
         // 4) 입술 테두리: 어둡게 그려 진짜 입술처럼 자연스럽게 블렌딩
         fcx.lineWidth = Math.max(1.4, oh * 0.13); fcx.strokeStyle = "rgba(122,42,48,0.5)"; fcx.stroke();
       }
-      // 눈 깜빡임 — 윗눈꺼풀이 위에서 아래로 내려와 눈을 덮음(실제 눈 크기에 맞춤)
-      if (pf && pf.reye && pf.leye && blink > 0.02) {
+      // 눈 깜빡임 — 실사 사진은 끔(사진 원래 눈 유지). 아래 블록 미실행.
+      if (false && pf && pf.reye && pf.leye && blink > 0.02) {
         const eDist = Math.hypot((pf.leye.x - pf.reye.x) * dw, (pf.leye.y - pf.reye.y) * dh) || dw * 0.3;
         const ew = eDist * 0.34, eh = eDist * 0.22; // 눈 가로/세로 추정
         [pf.reye, pf.leye].forEach((ey) => {

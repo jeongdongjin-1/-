@@ -3563,23 +3563,36 @@
     segReady = (async () => { try { await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"); return !!window.SelfieSegmentation; } catch (e) { return false; } })();
     return segReady;
   }
-  async function removeBg(img) {
+  let segInst = null, segPending = null;
+  async function getSeg() { // 인스턴스 1개 재사용(재로딩 방지)
+    if (segInst) return segInst;
     if (!(await ensureSelfieSeg()) || !window.SelfieSegmentation) return null;
+    try {
+      segInst = new window.SelfieSegmentation({ locateFile: (f) => "https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/" + f });
+      segInst.setOptions({ modelSelection: 1 });
+      segInst.onResults((r) => { const p = segPending; segPending = null; if (p) p(r); });
+    } catch (e) { segInst = null; }
+    return segInst;
+  }
+  async function removeBgOnce(img) {
+    const seg = await getSeg(); if (!seg) return null;
     return new Promise((res) => {
       let done = false; const fin = (v) => { if (done) return; done = true; res(v); };
-      let ss; try { ss = new window.SelfieSegmentation({ locateFile: (f) => "https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/" + f }); ss.setOptions({ modelSelection: 1 }); } catch (e) { return fin(null); }
-      ss.onResults((r) => {
+      const to = setTimeout(() => fin(null), 12000); // 첫 모델 로딩 여유
+      segPending = (r) => {
+        clearTimeout(to);
         try {
+          if (!r || !r.segmentationMask) return fin(null);
           const w = img.width, h = img.height, c = document.createElement("canvas"); c.width = w; c.height = h; const x = c.getContext("2d");
           x.drawImage(r.segmentationMask, 0, 0, w, h); x.globalCompositeOperation = "source-in"; x.drawImage(img, 0, 0, w, h); x.globalCompositeOperation = "source-over";
           const out = new Image(); out.onload = () => fin(out); out.onerror = () => fin(null); out.src = c.toDataURL("image/png");
         } catch (e) { fin(null); }
-        try { ss.close(); } catch (e) {}
-      });
-      ss.send({ image: img }).catch(() => fin(null));
-      setTimeout(() => fin(null), 6000);
+      };
+      try { const cv = document.createElement("canvas"); cv.width = img.width; cv.height = img.height; cv.getContext("2d").drawImage(img, 0, 0); seg.send({ image: cv }).catch(() => fin(null)); }
+      catch (e) { clearTimeout(to); fin(null); }
     });
   }
+  async function removeBg(img) { let r = await removeBgOnce(img); if (!r) { await new Promise((s) => setTimeout(s, 600)); r = await removeBgOnce(img); } return r; } // 실패 시 1회 재시도
   // 실사 사진: 위키백과(위키미디어 공용, 자유 라이선스, CORS 허용)에서 불러옴
   const PERSON_WIKI = { trump: "도널드 트럼프", biden: "조 바이든", leejm: "이재명", moon: "문재인", kimdj: "김대중", rohmh: "노무현", leemb: "이명박", parkgh: "박근혜" };
   const personPhotoCache = {};
@@ -4328,6 +4341,7 @@
     vcTile(myId, "나 (" + meetNick() + ")", vcStream, true);
     startPitchTracking(); // 목소리 톤 분석(화자 구분·성별 추정)
     recPrune(7); recStart(); // 음성 하루 단위 자동 녹음(최근 7일 보관)
+    try { getSeg(); } catch (e) {} // 배경 제거 모델 미리 로드(워밍업)
     // 자동 요약 타이머
     vcSumMin = parseInt($("meetDur").value, 10) || 0;
     vcStartTs = Date.now();

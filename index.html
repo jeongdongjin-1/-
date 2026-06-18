@@ -4114,9 +4114,12 @@
         <p style="font-size:11px;color:var(--muted);margin-bottom:12px">※ 특징을 살린 <b>3D 캐리커처(스타일라이즈)</b>입니다 — 실사 복제(딥페이크) 아님. 본인 얼굴 움직임으로 입·고개·눈이 움직입니다.</p>
         <div style="font-size:12.5px;font-weight:800;margin:6px 0">🐾 귀여운 동물 (직접 그린 캐릭터)</div>
         <div id="avAnimal" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${Object.keys(ANIMALS).map((k) => `<button data-animal="${k}" style="font-size:13px;font-weight:700;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:8px 12px;cursor:pointer">${ANIMALS[k]}</button>`).join("")}</div>
-        <div style="font-size:12.5px;font-weight:800;margin:6px 0">🧑 인물 (캐리커처)</div>
+        <div style="font-size:12.5px;font-weight:800;margin:6px 0">🧑 인물 캐리커처 (2D · 직접 그린 그림)</div>
         <div id="avPerson" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">${Object.keys(PERSONS).map((k) => `<button data-person="${k}" style="font-size:13px;font-weight:700;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:8px 12px;cursor:pointer">${PERSONS[k].label}</button>`).join("")}</div>
-        <p style="font-size:11px;color:var(--muted);margin-bottom:12px">※ 선택하면 위키백과(위키미디어 공용·자유 라이선스) 실사 사진을 불러옵니다. 못 불러오면 특징을 살린 캐리커처로 표시됩니다.</p>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:12px">※ 특징을 살린 2D 캐리커처(사진 안 불러옴). 입은 음성에 맞춰 움직입니다.</p>
+        <div style="font-size:12.5px;font-weight:800;margin:6px 0">📷 실사 사진 대통령 (위키백과 사진 · 배경 제거)</div>
+        <div id="avPhoto" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">${Object.keys(PERSONS).map((k) => `<button data-photo="${k}" style="font-size:13px;font-weight:700;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:8px 12px;cursor:pointer">📷 ${PERSONS[k].label}</button>`).join("")}</div>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:12px">※ 위키백과(위키미디어 공용·자유 라이선스) 실사 사진을 불러와 배경을 제거합니다. 못 불러오면 캐리커처로 표시됩니다.</p>
         <div style="font-size:12.5px;font-weight:800;margin:6px 0">😀 이모지</div>
         <div id="avEmoji" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${emojis.map((e) => `<button data-emoji="${e}" style="font-size:28px;border:1px solid var(--border);background:var(--bg);border-radius:10px;padding:6px 8px;cursor:pointer">${e}</button>`).join("")}</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -4129,12 +4132,13 @@
     body.querySelectorAll("#avFace3d button").forEach((b) => { b.onclick = () => { avatarStart("face3d", b.dataset.face3d, null); closeMedia(); }; });
     body.querySelectorAll("#avFace3dPerson button").forEach((b) => { b.onclick = () => { avatarStart("face3d", b.dataset.face3dperson, null); closeMedia(); meetChatSys("🧑‍🎤 " + (PERSONS[b.dataset.face3dperson] ? PERSONS[b.dataset.face3dperson].label : "") + " 3D 캐리커처 — 내 얼굴로 말합니다."); }; });
     body.querySelectorAll("#avAnimal button").forEach((b) => { b.onclick = () => { avatarStart("animal", b.dataset.animal, null); closeMedia(); }; });
-    body.querySelectorAll("#avPerson button").forEach((b) => { b.onclick = () => {
-      const id = b.dataset.person; closeMedia(); avatarStart("person", id, null); // 즉시 캐리커처로 시작
-      meetChatSys("🧑 " + (PERSONS[id] ? PERSONS[id].label : "") + " 실사 사진을 불러오는 중…");
+    body.querySelectorAll("#avPerson button").forEach((b) => { b.onclick = () => { avatarStart("person", b.dataset.person, null); closeMedia(); meetChatSys("🧑 " + (PERSONS[b.dataset.person] ? PERSONS[b.dataset.person].label : "") + " 캐리커처(2D)로 표시합니다."); }; });
+    body.querySelectorAll("#avPhoto button").forEach((b) => { b.onclick = () => {
+      const id = b.dataset.photo; closeMedia(); avatarStart("person", id, null); // 사진 로드 전까지 임시로 캐리커처
+      meetChatSys("📷 " + (PERSONS[id] ? PERSONS[id].label : "") + " 실사 사진을 불러오는 중…");
       loadPersonPhoto(id).then((img) => {
         if (img && vcAvatarOn && vcAvatarKind === "person" && vcAvatarVal === id) {
-          vcAvatarImg = img; vcAvatarKind = "img"; vcAvatarCutout = false; meetChatSys("🧑 실사 사진 적용 완료(위키백과). 배경 제거 중…");
+          vcAvatarImg = img; vcAvatarKind = "img"; vcAvatarCutout = false; meetChatSys("📷 실사 사진 적용 완료(위키백과). 배경 제거 중…");
           removeBg(img).then((cut) => { if (cut && vcAvatarVal === id && vcAvatarKind === "img") { vcAvatarImg = cut; vcAvatarCutout = true; meetChatSys("🧼 배경을 제거해 인물만 표시합니다(입체 효과)."); } else if (!cut) meetChatSys("배경 제거 실패 — 원본 사진으로 표시합니다."); });
         } else if (!img) meetChatSys("사진을 불러오지 못해 캐리커처로 표시합니다.");
       });

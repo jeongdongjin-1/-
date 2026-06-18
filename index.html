@@ -4148,9 +4148,17 @@
 
   async function meetJoin() {
     if (vcOn) return;
+    let mediaNote = "";
+    // 카메라+마이크 → (실패 시) 마이크만 → (실패 시) 보기 전용으로라도 입장 (입장이 막히지 않게)
     try { vcStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true }); }
-    catch (e) { alert("카메라/마이크를 사용할 수 없습니다: " + e.message); return; }
-    vcOn = true; vcMicOn = true; vcCamOn = true;
+    catch (e1) {
+      try { vcStream = await navigator.mediaDevices.getUserMedia({ audio: true }); mediaNote = "📷 카메라를 쓸 수 없어 음성으로만 참여합니다. (카메라 허용 시 영상 가능)"; }
+      catch (e2) {
+        try { vcStream = await navigator.mediaDevices.getUserMedia({ video: true }); mediaNote = "🎤 마이크를 쓸 수 없어 영상만 참여합니다."; }
+        catch (e3) { vcStream = new MediaStream(); mediaNote = "👀 카메라·마이크 권한이 없어 ‘보기 전용’으로 참여합니다. 주소창 🔒에서 권한을 허용하면 영상·음성이 켜집니다."; }
+      }
+    }
+    vcOn = true; vcMicOn = vcStream.getAudioTracks().length > 0; vcCamOn = vcStream.getVideoTracks().length > 0;
     localStorage.setItem("chatNick", meetNick());
     // 방 코드 → 토픽 분리(비밀방). 비우면 공개방.
     const code = ($("meetRoomCode").value || "").trim().slice(0, 24).replace(/[^A-Za-z0-9가-힣_-]/g, "");
@@ -4162,7 +4170,10 @@
     $("meetChatMsgs").innerHTML = ""; vcLog = [];
     meetChatSys(code ? ("🔒 비밀방 ‘" + code + "’ 에 입장했습니다. 같은 방 코드를 입력한 사람만 연결됩니다.") : "🌐 공개방에 입장했습니다. (방 코드를 정하면 비밀방으로 쓸 수 있어요)");
     meetChatSys("🎉 환영합니다 🎊");
+    if (mediaNote) meetChatSys(mediaNote);
     meetChatSys("🖱 참가자 화면을 드래그하면 위치를 바꿀 수 있습니다. (방장만 ⛔강퇴 가능)");
+    $("meetMic").classList.toggle("off", !vcMicOn); $("meetMic").textContent = vcMicOn ? "🎤" : "🔇";
+    $("meetCam").classList.toggle("off", !vcCamOn); $("meetCam").textContent = vcCamOn ? "📷" : "🚫";
     meetCelebrate(); // 입장 축하 폭죽
     logAuto("meetlog"); // 오래된 회의 기록 정리 + 어제 기록 자동 요약
     vcTile(myId, "나 (" + meetNick() + ")", vcStream, true);

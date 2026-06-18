@@ -3533,8 +3533,9 @@
   function drawBust(cx, fx, fy, hr, H) {
     cx.save();
     const topY = fy + hr * 0.85, cloth = vcAvatarTie ? "#3f4d8a" : "#5566a8";
+    const neckSkin = (vcAvatarKind === "person" && PERSONS[vcAvatarVal]) ? PERSONS[vcAvatarVal].skin : "#eec39a"; // 인물 피부톤에 맞춤
     // 목
-    cx.fillStyle = "#eec39a"; cx.fillRect(fx - hr * 0.26, fy + hr * 0.4, hr * 0.52, hr * 0.7);
+    cx.fillStyle = neckSkin; cx.fillRect(fx - hr * 0.26, fy + hr * 0.4, hr * 0.52, hr * 0.7);
     cx.fillStyle = "rgba(0,0,0,.12)"; cx.fillRect(fx - hr * 0.26, fy + hr * 0.4, hr * 0.52, hr * 0.14); // 턱 그림자
     // 몸통(어깨에서 아래로) — 그라데이션 정장
     const g = cx.createLinearGradient(0, topY, 0, H); g.addColorStop(0, cloth); g.addColorStop(1, "rgba(0,0,0,0.35)");
@@ -3546,8 +3547,7 @@
     cx.quadraticCurveTo(fx + hr * 1.7, topY + hr * 0.2, fx + hr * 2.5, H);                 // 오른 어깨
     cx.closePath(); cx.fill();
     cx.fillStyle = g; cx.fill();
-    // 팔(양옆 둥근 윤곽)
-    cx.fillStyle = "rgba(0,0,0,.10)"; [-1, 1].forEach((s) => { cx.beginPath(); cx.ellipse(fx + s * hr * 2.1, H, hr * 0.6, hr * 2.0, 0, 0, Math.PI * 2); cx.fill(); });
+    cx.strokeStyle = "rgba(0,0,0,.28)"; cx.lineWidth = 2.5; cx.stroke(); // 어깨 외곽선(깔끔한 윤곽)
     // 셔츠 깃(V) + 넥타이
     cx.fillStyle = "#fff"; cx.beginPath(); cx.moveTo(fx - hr * 0.34, topY - hr * 0.02); cx.lineTo(fx, topY + hr * 0.45); cx.lineTo(fx + hr * 0.34, topY - hr * 0.02); cx.lineTo(fx, topY - hr * 0.12); cx.closePath(); cx.fill();
     if (vcAvatarTie) { cx.fillStyle = vcAvatarTie; cx.beginPath(); cx.moveTo(fx, topY + hr * 0.05); cx.lineTo(fx - hr * 0.14, topY + hr * 0.3); cx.lineTo(fx - hr * 0.17, H); cx.lineTo(fx + hr * 0.17, H); cx.lineTo(fx + hr * 0.14, topY + hr * 0.3); cx.closePath(); cx.fill(); }
@@ -3679,8 +3679,9 @@
     const P = PERSONS[id] || {}; const skin = P.skin || "#eec6a0", hair = P.hair || "#333", R = 100, TAU = Math.PI * 2;
     let rx = R * 0.8, ry = R * 0.95; // 얼굴형
     if (P.face === "long") { rx = R * 0.72; ry = R * 1.03; } else if (P.face === "round") { rx = R * 0.9; ry = R * 0.84; } else if (P.face === "square") { rx = R * 0.86; ry = R * 0.9; } else if (P.face === "oval") { rx = R * 0.78; ry = R * 0.98; }
-    [-1, 1].forEach((s) => { cx.beginPath(); cx.ellipse(s * rx, 8, 13, 19, 0, 0, TAU); cx.fillStyle = skin; cx.fill(); }); // 귀
-    cx.beginPath(); cx.ellipse(0, 6, rx, ry, 0, 0, TAU); cx.fillStyle = skin; cx.fill(); // 얼굴
+    const outline = "rgba(80,55,38,.5)"; // 깔끔한 외곽선
+    [-1, 1].forEach((s) => { cx.beginPath(); cx.ellipse(s * rx, 8, 13, 19, 0, 0, TAU); cx.fillStyle = skin; cx.fill(); cx.lineWidth = 2.5; cx.strokeStyle = outline; cx.stroke(); }); // 귀
+    cx.beginPath(); cx.ellipse(0, 6, rx, ry, 0, 0, TAU); cx.fillStyle = skin; cx.fill(); cx.lineWidth = 2.5; cx.strokeStyle = outline; cx.stroke(); // 얼굴
     if (P.face === "square") { cx.fillRect(-rx * 0.82, 6 + ry * 0.28, rx * 1.64, ry * 0.5); } // 각진 턱
     cx.fillStyle = hair; // 헤어
     if (P.hairStyle === "updo") {

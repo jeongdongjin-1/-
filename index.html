@@ -3697,6 +3697,121 @@
     else if (P.smile === "pursed") { cx.strokeStyle = "#7a3b3b"; cx.lineWidth = 4; cx.beginPath(); cx.moveTo(-15, 47); cx.quadraticCurveTo(0, 47 + open * 0.35, 15, 47); cx.stroke(); } // 입 다문
     else { cx.strokeStyle = P.female ? "#c0506a" : "#7a3b3b"; cx.lineWidth = 3; cx.beginPath(); cx.ellipse(0, 46, 17, open, 0, 0, Math.PI); cx.stroke(); if (lvl > 0.08) { cx.fillStyle = "#9b3b3b"; cx.beginPath(); cx.ellipse(0, 47, 11, open * 0.7, 0, 0, TAU); cx.fill(); } }
   }
+  /* ===== 3D 입체 아바타: MediaPipe FaceMesh(468점) 실시간 추적 → Three.js 스타일라이즈 헤드 =====
+     본인 웹캠 얼굴의 고개 회전·눈 깜빡임·입 모양을 추출해 3D 캐릭터를 구동(특정 실존 인물 복제 아님). */
+  let vcFm = null, vcFmReady = null, vcFmBusy = false, vcMeshTimer = null;
+  let vcMesh = null; // {yaw,pitch,roll,mouth,blinkL,blinkR,brow}
+  const vcMeshS = { yaw: 0, pitch: 0, roll: 0, mouth: 0, blinkL: 0, blinkR: 0, brow: 0 }; // 평활값
+  function mdist(a, b) { const dx = a.x - b.x, dy = a.y - b.y; return Math.hypot(dx, dy); }
+  function onMeshResults(res) {
+    vcFmBusy = false;
+    const L = res.multiFaceLandmarks && res.multiFaceLandmarks[0];
+    if (!L) { vcMesh = null; return; }
+    const faceW = mdist(L[234], L[454]) || 1e-4, faceH = mdist(L[10], L[152]) || 1e-4;
+    const mouth = Math.max(0, Math.min(1, (mdist(L[13], L[14]) / faceH - 0.03) / 0.16)); // 입 벌림
+    const earL = mdist(L[159], L[145]) / (mdist(L[33], L[133]) || 1e-4); // 눈 종횡비(왼)
+    const earR = mdist(L[386], L[374]) / (mdist(L[362], L[263]) || 1e-4); // 눈 종횡비(오)
+    const blinkL = Math.max(0, Math.min(1, (0.23 - earL) / 0.17));
+    const blinkR = Math.max(0, Math.min(1, (0.23 - earR) / 0.17));
+    const eL = L[33], eR = L[263];
+    let roll = Math.atan2(eR.y - eL.y, eR.x - eL.x); if (roll > Math.PI / 2) roll -= Math.PI; if (roll < -Math.PI / 2) roll += Math.PI; roll = Math.max(-0.6, Math.min(0.6, roll));
+    const cxF = (L[234].x + L[454].x) / 2;
+    let yaw = ((L[1].x - cxF) / faceW) * 2.2; yaw = Math.max(-0.8, Math.min(0.8, yaw)); // 좌우 고개
+    const eyeMidY = (eL.y + eR.y) / 2;
+    let pitch = ((L[1].y - eyeMidY) / faceH - 0.33) * 2.4; pitch = Math.max(-0.6, Math.min(0.6, pitch)); // 상하 고개
+    const brow = Math.max(0, Math.min(1, (mdist(L[105], L[159]) / faceH - 0.08) / 0.06)); // 눈썹 올림
+    vcMesh = { yaw, pitch, roll, mouth, blinkL, blinkR, brow };
+  }
+  function ensureFaceMesh() {
+    if (vcFm) return Promise.resolve(vcFm);
+    if (vcFmReady) return vcFmReady;
+    vcFmReady = (async () => {
+      try {
+        await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js");
+        if (!window.FaceMesh) return null;
+        const fm = new window.FaceMesh({ locateFile: (f) => "https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/" + f });
+        fm.setOptions({ maxNumFaces: 1, refineLandmarks: false, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        fm.onResults(onMeshResults);
+        if (fm.initialize) await fm.initialize();
+        vcFm = fm; return fm;
+      } catch (e) { return null; }
+    })();
+    return vcFmReady;
+  }
+  function meshTick() {
+    if (!vcAvatarOn || vcAvatarKind !== "face3d" || !vcFm || vcFmBusy || !vcCamOn || !vcAvVideo || !vcAvVideo.videoWidth) return;
+    vcFmBusy = true;
+    try { const p = vcFm.send({ image: vcAvVideo }); if (p && p.catch) p.catch(() => { vcFmBusy = false; }); } catch (e) { vcFmBusy = false; }
+  }
+  const HEAD_STYLES = {
+    mint: { skin: 0x8fe3c9, hair: 0x36b894, ear: 0x8fe3c9, mouth: 0x9b3b46, label: "🟢 민트 캐릭터" },
+    peach: { skin: 0xffd6b0, hair: 0x6b4a2b, ear: 0xffd6b0, mouth: 0xb3424a, label: "🟠 피치 캐릭터" },
+    sky: { skin: 0xbcd4ff, hair: 0x4f6dd6, ear: 0xbcd4ff, mouth: 0x7a3a52, label: "🔵 스카이 캐릭터" },
+    robot: { skin: 0xc2cad8, hair: 0x5566aa, ear: 0x8893a8, mouth: 0x222a3a, label: "🤖 로봇" },
+    fox: { skin: 0xff9b54, hair: 0xe8762f, ear: 0xff9b54, mouth: 0x5a1f1f, label: "🦊 여우" },
+  };
+  let head3d = null;
+  function ensureHead3D() {
+    if (head3d) return head3d;
+    const THREE = window.THREE; if (!THREE) return null;
+    const W = 360, H = 360;
+    const canvas = document.createElement("canvas"); canvas.width = W; canvas.height = H;
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, preserveDrawingBuffer: true });
+    renderer.setSize(W, H, false); renderer.setClearColor(0x000000, 0);
+    const scene = new THREE.Scene();
+    const cam = new THREE.PerspectiveCamera(34, 1, 0.1, 100); cam.position.set(0, 0, 7);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.78));
+    const dl = new THREE.DirectionalLight(0xffffff, 0.95); dl.position.set(1.2, 1.6, 2.6); scene.add(dl);
+    const rim = new THREE.DirectionalLight(0x88aaff, 0.45); rim.position.set(-2, -1, -2); scene.add(rim);
+    const grp = new THREE.Group(); scene.add(grp);
+    const mk = (c, r = 0.6, m = 0.05) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m });
+    const skinMat = mk(0x8fe3c9), hairMat = mk(0x36b894), earMat = mk(0x8fe3c9), mouthMat = mk(0x9b3b46, 0.5);
+    const eyeWhiteMat = mk(0xffffff, 0.3), irisMat = mk(0x222831, 0.25), browMat = mk(0x333333, 0.6);
+    const head = new THREE.Mesh(new THREE.SphereGeometry(1.5, 48, 48), skinMat); head.scale.set(1, 1.12, 0.92); grp.add(head);
+    const hair = new THREE.Mesh(new THREE.SphereGeometry(1.55, 48, 32, 0, Math.PI * 2, 0, Math.PI * 0.55), hairMat); hair.scale.set(1, 1.12, 0.92); grp.add(hair);
+    const earGeo = new THREE.SphereGeometry(0.32, 24, 24);
+    const earL = new THREE.Mesh(earGeo, earMat); earL.position.set(-1.45, 0, 0); grp.add(earL);
+    const earR = new THREE.Mesh(earGeo, earMat); earR.position.set(1.45, 0, 0); grp.add(earR);
+    const eyeGeo = new THREE.SphereGeometry(0.30, 28, 28);
+    const eyeL = new THREE.Mesh(eyeGeo, eyeWhiteMat); eyeL.position.set(-0.52, 0.18, 1.26); eyeL.scale.set(1, 1, 0.5); grp.add(eyeL);
+    const eyeR = new THREE.Mesh(eyeGeo, eyeWhiteMat); eyeR.position.set(0.52, 0.18, 1.26); eyeR.scale.set(1, 1, 0.5); grp.add(eyeR);
+    const irisGeo = new THREE.SphereGeometry(0.15, 20, 20);
+    const irisL = new THREE.Mesh(irisGeo, irisMat); irisL.position.set(-0.52, 0.18, 1.40); grp.add(irisL);
+    const irisR = new THREE.Mesh(irisGeo, irisMat); irisR.position.set(0.52, 0.18, 1.40); grp.add(irisR);
+    const lidGeo = new THREE.SphereGeometry(0.34, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.5);
+    const lidL = new THREE.Mesh(lidGeo, skinMat); lidL.position.set(-0.52, 0.20, 1.50); lidL.scale.set(1, 0.01, 0.6); grp.add(lidL);
+    const lidR = new THREE.Mesh(lidGeo, skinMat); lidR.position.set(0.52, 0.20, 1.50); lidR.scale.set(1, 0.01, 0.6); grp.add(lidR);
+    const browGeo = new THREE.BoxGeometry(0.5, 0.09, 0.12);
+    const browL = new THREE.Mesh(browGeo, browMat); browL.position.set(-0.52, 0.62, 1.42); grp.add(browL);
+    const browR = new THREE.Mesh(browGeo, browMat); browR.position.set(0.52, 0.62, 1.42); grp.add(browR);
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.16, 20, 20), skinMat); nose.position.set(0, -0.12, 1.52); nose.scale.set(1, 1.2, 1); grp.add(nose);
+    const mouth = new THREE.Mesh(new THREE.SphereGeometry(0.42, 28, 20), mouthMat); mouth.position.set(0, -0.72, 1.28); mouth.scale.set(1, 0.12, 0.4); grp.add(mouth);
+    head3d = {
+      canvas, renderer, scene, cam, grp,
+      refs: { skinMat, hairMat, earMat, mouthMat, earL, earR, irisL, irisR, lidL, lidR, browL, browR, mouth },
+      style: null,
+      setStyle(name) {
+        const s = HEAD_STYLES[name] || HEAD_STYLES.mint; this.style = name;
+        skinMat.color.setHex(s.skin); hairMat.color.setHex(s.hair); earMat.color.setHex(s.ear); mouthMat.color.setHex(s.mouth);
+        if (name === "fox") { earL.scale.set(0.8, 1.7, 0.6); earR.scale.set(0.8, 1.7, 0.6); earL.position.set(-1.0, 1.35, 0); earR.position.set(1.0, 1.35, 0); }
+        else if (name === "robot") { earL.scale.set(0.5, 0.5, 1.5); earR.scale.set(0.5, 0.5, 1.5); earL.position.set(-1.45, 0, 0); earR.position.set(1.45, 0, 0); }
+        else { earL.scale.set(1, 1, 1); earR.scale.set(1, 1, 1); earL.position.set(-1.45, 0, 0); earR.position.set(1.45, 0, 0); }
+      },
+      render(p) {
+        const r = this.refs;
+        grp.rotation.set(p.pitch || 0, p.yaw || 0, p.roll || 0);
+        const mo = p.mouth || 0; r.mouth.scale.set(1 + mo * 0.2, 0.12 + mo * 0.95, 0.4 + mo * 0.25); r.mouth.position.y = -0.72 - mo * 0.12;
+        r.lidL.scale.set(1, 0.01 + (p.blinkL || 0), 0.6); r.lidR.scale.set(1, 0.01 + (p.blinkR || 0), 0.6);
+        r.browL.position.y = 0.62 + (p.brow || 0) * 0.13; r.browR.position.y = 0.62 + (p.brow || 0) * 0.13;
+        r.irisL.position.x = -0.52 + (p.yaw || 0) * 0.15; r.irisR.position.x = 0.52 + (p.yaw || 0) * 0.15;
+        r.irisL.position.y = 0.18 - (p.pitch || 0) * 0.12; r.irisR.position.y = 0.18 - (p.pitch || 0) * 0.12;
+        renderer.render(scene, cam);
+      },
+      dispose() { try { renderer.dispose(); } catch (e) {} head3d = null; },
+    };
+    head3d.setStyle("mint");
+    return head3d;
+  }
   function avatarDraw() {
     vcAvRAF = requestAnimationFrame(avatarDraw);
     const cv = vcAvCanvas, cx = cv.getContext("2d"), W = cv.width, H = cv.height;
@@ -3715,6 +3830,25 @@
         fx = vcFace.x; fy = vcFace.y; avScale = vcFace.s; roll = vcFace.r || 0;
       }
     } else { const g = cx.createLinearGradient(0, 0, 0, H); g.addColorStop(0, "#1b2a4a"); g.addColorStop(1, "#0b1020"); cx.fillStyle = g; cx.fillRect(0, 0, W, H); }
+    if (vcAvatarKind === "face3d") { // 3D 입체 헤드: 내 얼굴 실시간 추적값으로 구동
+      const h3 = ensureHead3D();
+      if (h3) {
+        const m = vcMesh, tgt = m || { yaw: 0, pitch: 0, roll: 0, mouth: 0, blinkL: 0, blinkR: 0, brow: 0 };
+        const aMouth = Math.max(tgt.mouth || 0, lvl * 0.9); // 입은 추적값과 음성 중 큰 값
+        const auto = blink, sm = vcMeshS;
+        sm.yaw += (tgt.yaw - sm.yaw) * 0.4; sm.pitch += (tgt.pitch - sm.pitch) * 0.4; sm.roll += (tgt.roll - sm.roll) * 0.4;
+        sm.mouth += (aMouth - sm.mouth) * 0.5;
+        const blL = m ? tgt.blinkL : auto, blR = m ? tgt.blinkR : auto;
+        sm.blinkL += (blL - sm.blinkL) * 0.5; sm.blinkR += (blR - sm.blinkR) * 0.5; sm.brow += ((tgt.brow || 0) - sm.brow) * 0.3;
+        h3.render({ yaw: -sm.yaw, pitch: sm.pitch, roll: sm.roll, mouth: sm.mouth, blinkL: sm.blinkL, blinkR: sm.blinkR, brow: sm.brow });
+        const hs = Math.min(W, H) * 0.96 * (1 + lvl * 0.05);
+        const hx = W / 2 + Math.sin(vcAvT * 0.6) * 6, hy = H * 0.46 + Math.sin(vcAvT) * 4 - lvl * 8;
+        cx.save(); cx.shadowColor = "rgba(0,0,0,.35)"; cx.shadowBlur = 22; cx.shadowOffsetY = 10;
+        try { cx.drawImage(h3.canvas, hx - hs / 2, hy - hs / 2, hs, hs); } catch (e) {}
+        cx.restore();
+      }
+    }
+    if (vcAvatarKind !== "face3d") {
     // VTuber식 생동감: 머리 기울기 + 미세한 idle 흔들림 + 숨쉬기 + 말할 때 들썩임
     const idleSway = Math.sin(vcAvT * 0.6) * 0.025, breath = 1 + Math.sin(vcAvT * 0.5) * 0.012;
     const bob = Math.sin(vcAvT) * 4 - lvl * 12, scale = avScale * breath * (1 + lvl * 0.12);
@@ -3768,6 +3902,7 @@
       if (lvl > 0.07) { cx.fillStyle = "rgba(0,0,0,.6)"; cx.beginPath(); cx.ellipse(0, 40, 24, 5 + lvl * 26, 0, 0, 7); cx.fill(); }
     }
     cx.restore();
+    } // end if(kind!=="face3d")
     cx.font = "15px sans-serif"; cx.textAlign = "left"; cx.textBaseline = "alphabetic";
     const nm = "🦸 " + meetNick(); const tw = cx.measureText(nm).width;
     cx.fillStyle = "rgba(0,0,0,.5)"; cx.fillRect(8, H - 32, tw + 16, 24); cx.fillStyle = "#fff"; cx.fillText(nm, 16, H - 15);
@@ -3785,7 +3920,16 @@
     vcAvCanvas.width = 480; vcAvCanvas.height = 360;
     if (!vcAvVideo) { vcAvVideo = document.createElement("video"); vcAvVideo.muted = true; vcAvVideo.playsInline = true; vcAvVideo.autoplay = true; }
     if (vcAvVideo.srcObject !== vcStream) { vcAvVideo.srcObject = vcStream; try { vcAvVideo.play(); } catch (e) {} } // 배경용 카메라 프레임 소스
-    ensureFaceDetector().then((fd) => { if (fd && vcAvatarOn && !vcFdTimer) { vcFdTimer = setInterval(faceTick, 130); meetChatSys("🙂 얼굴 추적이 켜졌습니다 — 아바타가 얼굴을 따라갑니다."); } }); // 얼굴 추적 시작
+    if (vcFdTimer) { clearInterval(vcFdTimer); vcFdTimer = null; }
+    if (vcMeshTimer) { clearInterval(vcMeshTimer); vcMeshTimer = null; }
+    if (kind === "face3d") { // 3D 입체 아바타: Three.js + FaceMesh
+      vcMesh = null;
+      meetChatSys("🧊 3D 입체 아바타 준비 중 — 3D 엔진·얼굴 추적 모델을 불러옵니다…");
+      ensureThree().then((ok) => { if (ok || window.THREE) { try { ensureHead3D().setStyle(val || "mint"); } catch (e) {} } else meetChatSys("3D 엔진을 불러오지 못했습니다(데스크톱 크롬·엣지 권장)."); });
+      ensureFaceMesh().then((fm) => { if (fm && vcAvatarOn && vcAvatarKind === "face3d" && !vcMeshTimer) { vcMeshTimer = setInterval(meshTick, 90); meetChatSys("🧊 3D 아바타가 내 얼굴을 실시간으로 따라갑니다(고개·눈·입). 카메라를 정면으로 봐주세요."); } else if (!fm) meetChatSys("얼굴 추적 모델 로드 실패 — 잠시 후 다시 시도하세요."); });
+    } else {
+      ensureFaceDetector().then((fd) => { if (fd && vcAvatarOn && !vcFdTimer) { vcFdTimer = setInterval(faceTick, 130); meetChatSys("🙂 얼굴 추적이 켜졌습니다 — 아바타가 얼굴을 따라갑니다."); } }); // 얼굴 추적 시작
+    }
     try { if (!vcAudioCtx) vcAudioCtx = new (window.AudioContext || window.webkitAudioContext)(); if (vcAudioCtx.state === "suspended") vcAudioCtx.resume(); if (!vcAvAn) { const src = vcAudioCtx.createMediaStreamSource(vcStream); vcAvAn = vcAudioCtx.createAnalyser(); vcAvAn.fftSize = 512; src.connect(vcAvAn); vcAvData = new Uint8Array(vcAvAn.fftSize); } } catch (e) {}
     if (!vcAvRAF) avatarDraw();
     if (!vcAvStream) { vcAvStream = vcAvCanvas.captureStream(25); vcAvTrack = vcAvStream.getVideoTracks()[0]; }
@@ -3801,6 +3945,7 @@
     const lt = document.getElementById("vtile-" + myId); if (lt) lt.querySelector("video").srcObject = vcStream;
     if (vcAvRAF) { cancelAnimationFrame(vcAvRAF); vcAvRAF = 0; }
     if (vcFdTimer) { clearInterval(vcFdTimer); vcFdTimer = null; } vcFaceTarget = null; vcFace = null;
+    if (vcMeshTimer) { clearInterval(vcMeshTimer); vcMeshTimer = null; } vcMesh = null;
     vcAvatarOn = false; $("meetAvatar").classList.remove("live");
     meetChatSys("🦸 아바타를 끄고 카메라로 돌아왔습니다.");
   }
@@ -3809,6 +3954,7 @@
     if (vcAvStream) { try { vcAvStream.getTracks().forEach((t) => t.stop()); } catch (e) {} }
     if (vcAvVideo) { try { vcAvVideo.pause(); vcAvVideo.srcObject = null; } catch (e) {} vcAvVideo = null; }
     if (vcFdTimer) { clearInterval(vcFdTimer); vcFdTimer = null; } vcFaceTarget = null; vcFace = null;
+    if (vcMeshTimer) { clearInterval(vcMeshTimer); vcMeshTimer = null; } vcMesh = null;
     vcAvStream = null; vcAvTrack = null; vcAvAn = null; vcAvatarOn = false; vcAvatarImg = null;
   }
   function openAvatarPicker() {
@@ -3819,6 +3965,9 @@
     const emojis = ["🙂", "😎", "🐱", "🐶", "🦊", "🐼", "🐵", "🤖", "👽", "🦸", "🧑‍🚀", "👻", "🐯", "🦁", "🐸", "🐰"];
     body.innerHTML = `<div style="padding:16px">
         <p style="font-size:13px;color:var(--muted);margin-bottom:8px">실제 카메라 배경은 그대로 두고, 아바타가 <b>얼굴을 추적</b>하며 따라다닙니다. 말하면 입이 움직여요.</p>
+        <div style="font-size:12.5px;font-weight:800;margin:6px 0">🧊 3D 입체 아바타 — 내 얼굴 실시간 추적(고개·눈·입)</div>
+        <div id="avFace3d" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px">${Object.keys(HEAD_STYLES).map((k) => `<button data-face3d="${k}" style="font-size:13px;font-weight:700;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:8px 12px;cursor:pointer">${HEAD_STYLES[k].label}</button>`).join("")}</div>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:12px">※ 본인 얼굴 움직임을 그대로 입힌 3D 캐릭터입니다(특정 실존 인물 복제 아님). 데스크톱 크롬·엣지 권장.</p>
         <div style="font-size:12.5px;font-weight:800;margin:6px 0">🐾 귀여운 동물 (직접 그린 캐릭터)</div>
         <div id="avAnimal" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${Object.keys(ANIMALS).map((k) => `<button data-animal="${k}" style="font-size:13px;font-weight:700;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:8px 12px;cursor:pointer">${ANIMALS[k]}</button>`).join("")}</div>
         <div style="font-size:12.5px;font-weight:800;margin:6px 0">🧑 인물 (캐리커처)</div>
@@ -3833,6 +3982,7 @@
         <p style="font-size:11.5px;color:var(--muted);margin-top:10px">※ 이미지는 이 기기에서만 처리되어 영상으로 전송됩니다(서버 업로드 없음).</p>
       </div>`;
     $("mediaModal").style.display = "flex";
+    body.querySelectorAll("#avFace3d button").forEach((b) => { b.onclick = () => { avatarStart("face3d", b.dataset.face3d, null); closeMedia(); }; });
     body.querySelectorAll("#avAnimal button").forEach((b) => { b.onclick = () => { avatarStart("animal", b.dataset.animal, null); closeMedia(); }; });
     body.querySelectorAll("#avPerson button").forEach((b) => { b.onclick = () => {
       const id = b.dataset.person; closeMedia(); avatarStart("person", id, null); // 즉시 캐리커처로 시작

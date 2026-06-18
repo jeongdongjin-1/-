@@ -4233,14 +4233,19 @@
 
   async function meetJoin() {
     if (vcOn) return;
-    let mediaNote = "";
-    // 카메라+마이크 → (실패 시) 마이크만 → (실패 시) 보기 전용으로라도 입장 (입장이 막히지 않게)
+    let mediaNote = "", micErr = "";
+    const micAdvice = (n) => /NotReadable|TrackStart/i.test(n) ? "⚠ 마이크를 다른 프로그램(줌·팀즈·녹음기 등)이 사용 중이거나 드라이버 문제일 수 있어요. 그 프로그램을 끄고 ‘나가기’ 후 다시 입장해 주세요."
+      : /NotFound|DevicesNotFound|Overconstrained/i.test(n) ? "⚠ 사용 가능한 마이크 장치가 없습니다. 마이크 연결과 Windows 사운드 입력 설정을 확인해 주세요."
+      : /NotAllowed|Security|Permission/i.test(n) ? "⚠ 마이크 권한이 차단됨. 주소창 🔒 → 마이크 ‘허용’으로 바꿔주세요."
+      : "⚠ 마이크 오류: " + n;
+    // 카메라+마이크 → (실패 시) 마이크만 → (실패 시) 영상만 → 보기 전용 (입장이 막히지 않게)
     try { vcStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true }); }
     catch (e1) {
-      try { vcStream = await navigator.mediaDevices.getUserMedia({ audio: true }); mediaNote = "📷 카메라를 쓸 수 없어 음성으로만 참여합니다. (카메라 허용 시 영상 가능)"; }
+      try { vcStream = await navigator.mediaDevices.getUserMedia({ audio: true }); mediaNote = "📷 카메라를 쓸 수 없어 음성으로만 참여합니다."; }
       catch (e2) {
+        micErr = (e2 && (e2.name || e2.message)) || "unknown";
         try { vcStream = await navigator.mediaDevices.getUserMedia({ video: true }); mediaNote = "🎤 마이크를 쓸 수 없어 영상만 참여합니다."; }
-        catch (e3) { vcStream = new MediaStream(); mediaNote = "👀 카메라·마이크 권한이 없어 ‘보기 전용’으로 참여합니다. 주소창 🔒에서 권한을 허용하면 영상·음성이 켜집니다."; }
+        catch (e3) { vcStream = new MediaStream(); mediaNote = "👀 카메라·마이크 없이 ‘보기 전용’으로 참여합니다. (" + ((e3 && e3.name) || "") + ")"; }
       }
     }
     vcOn = true; vcMicOn = vcStream.getAudioTracks().length > 0; vcCamOn = vcStream.getVideoTracks().length > 0;
@@ -4256,6 +4261,7 @@
     meetChatSys(code ? ("🔒 비밀방 ‘" + code + "’ 에 입장했습니다. 같은 방 코드를 입력한 사람만 연결됩니다.") : "🌐 공개방에 입장했습니다. (방 코드를 정하면 비밀방으로 쓸 수 있어요)");
     meetChatSys("🎉 환영합니다 🎊");
     if (mediaNote) meetChatSys(mediaNote);
+    if (micErr) meetChatSys(micAdvice(micErr)); // 마이크 실패 원인 정확 안내(권한 vs 장치 사용 중)
     meetChatSys("🖱 참가자 화면을 드래그하면 위치를 바꿀 수 있습니다. (방장만 ⛔강퇴 가능)");
     $("meetMic").classList.toggle("off", !vcMicOn); $("meetMic").textContent = vcMicOn ? "🎤" : "🔇";
     $("meetCam").classList.toggle("off", !vcCamOn); $("meetCam").textContent = vcCamOn ? "📷" : "🚫";

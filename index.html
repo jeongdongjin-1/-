@@ -4068,6 +4068,7 @@
       else { let best = null, bd = 1e9; vcVoiceprints.forEach((s) => { const d = Math.abs((s.pitch || 0) - pitch); if (d < bd) { bd = d; best = s; } }); if (best && bd <= 40) match = best; }
     }
     if (match) return updateVp(match, pitch, mfcc);
+    if (!key && !pitch) return vcLastVp; // 음성 특징이 전혀 없으면 새 화자 만들지 않음(직전 화자 유지)
     const s = { nick: nextVoiceNick(), pitch: pitch || 0, mfcc: mfcc ? mfcc.slice() : null, pitches: pitch ? [pitch] : [], gender: "m", locked: false, n: 1 };
     s.gender = genderFromPitches(s.pitches, null);
     vcVoiceprints.push(s); vcLastVp = s; saveVoiceprintsSoon(); return s;
@@ -4114,13 +4115,13 @@
 
   /* 음성 자막 (Web Speech API · 각자 자기 마이크를 받아 텍스트로) */
   function sttSupported() { return !!(window.SpeechRecognition || window.webkitSpeechRecognition); }
-  let sttErrShown = {}, sttHeard = false, sttRestartT = null;
+  let sttErrShown = {}, sttHeard = false, sttRestartT = null, sttAnnounced = false, sttWatch = null;
   function meetSttStart() {
     if (!sttSupported()) { meetChatSys("⚠ 이 브라우저는 음성 인식을 지원하지 않습니다. 크롬·엣지 웹브라우저에서 사용해 주세요."); return false; }
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     try { vcStt = new SR(); } catch (e) { meetChatSys("음성 인식 시작 실패: " + (e.message || e)); return false; }
     vcStt.lang = "ko-KR"; vcStt.continuous = true; vcStt.interimResults = true; vcStt.maxAlternatives = 1;
-    vcStt.onstart = () => { sttHeard = false; sttUpdateBtn(); };
+    vcStt.onstart = () => { sttHeard = false; sttUpdateBtn(); if (!sttAnnounced) { sttAnnounced = true; meetChatSys("🎙 음성 인식이 켜졌습니다 — 또렷하게 말해보세요. (CC 버튼이 초록색이면 듣는 중)"); } };
     vcStt.onresult = (e) => {
       let fin = "", itm = "";
       for (let i = e.resultIndex; i < e.results.length; i++) {
@@ -4154,7 +4155,7 @@
     try { vcStt.start(); } catch (e) { meetChatSys("음성 인식을 시작하지 못했습니다: " + (e.message || e)); return false; }
     return true;
   }
-  function meetSttStop() { vcSttWant = false; if (vcStt) { try { vcStt.onend = null; vcStt.stop(); } catch (e) {} vcStt = null; } sttUpdateBtn(); }
+  function meetSttStop() { vcSttWant = false; if (sttWatch) { clearInterval(sttWatch); sttWatch = null; } if (vcStt) { try { vcStt.onend = null; vcStt.stop(); } catch (e) {} vcStt = null; } sttUpdateBtn(); }
   function sttUpdateBtn() {
     const b = $("meetStt"); if (!b) return;
     b.classList.toggle("live", vcSttWant); b.classList.toggle("off", !vcSttWant);
@@ -4265,10 +4266,12 @@
       vcSumTimer = setTimeout(() => meetSummarize(true), vcSumMin * 60000);
     }
     // 말하면 자동으로 채팅 입력 + 영어 번역: 음성 인식 자동 시작
-    sttErrShown = {};
+    sttErrShown = {}; sttAnnounced = false;
     if (sttSupported()) {
       vcSttWant = true; meetSttStart();
       meetChatSys("🎙 말하면 채팅에 그대로 입력되고, 자동으로 영어로 번역됩니다. (CC로 끄기 가능)");
+      if (sttWatch) clearInterval(sttWatch);
+      sttWatch = setInterval(() => { if (vcSttWant && vcOn && vcMicOn && !vcStt) meetSttStart(); }, 4000); // 끊기면 자동 재시작(워치독)
     } else {
       meetChatSys("이 브라우저는 음성 인식을 지원하지 않습니다. 크롬·엣지에서 음성 자동 입력이 동작합니다.");
     }

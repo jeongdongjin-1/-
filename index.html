@@ -3928,7 +3928,7 @@
     const blink = blinkAmount();
     // 배경: 실제 카메라 영상 유지. 캠 꺼짐 또는 인물 캐리커처(2D·3D)면 깔끔한 스튜디오 배경으로 분리.
     let fx = W / 2, fy = H * 0.42, avScale = 1.05, roll = 0; // 폴백(고정 위치)
-    const cleanBg = vcAvatarKind === "img" || (vcAvatarKind === "face3d" && PERSONS[vcAvatarVal]); // 2D 캐리커처는 실제 카메라 배경 사용
+    const cleanBg = false; // 모든 아바타에서 실제 카메라 배경이 보이게
     if (vcCamOn && vcAvVideo && vcAvVideo.videoWidth && !cleanBg) {
       const vw = vcAvVideo.videoWidth, vh = vcAvVideo.videoHeight, sc = Math.max(W / vw, H / vh), dw = vw * sc, dh = vh * sc, ox = (W - dw) / 2, oy = (H - dh) / 2;
       try { cx.drawImage(vcAvVideo, ox, oy, dw, dh); } catch (e) {}

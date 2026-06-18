@@ -3543,6 +3543,21 @@
     leemb: { label: "이명박", skin: "#e7ba90", face: "square", hair: "#2a2a2a", hairStyle: "bald", glasses: "clear", tie: "#555555", smile: "soft", age: 1 },
     parkgh: { label: "박근혜", skin: "#eecbb0", face: "oval", hair: "#2a2320", hairStyle: "updo", glasses: "none", tie: null, smile: "soft", age: 1, female: true },
   };
+  // 실사 사진: 위키백과(위키미디어 공용, 자유 라이선스, CORS 허용)에서 불러옴
+  const PERSON_WIKI = { trump: "도널드 트럼프", biden: "조 바이든", leejm: "이재명", moon: "문재인", kimdj: "김대중", rohmh: "노무현", leemb: "이명박", parkgh: "박근혜" };
+  const personPhotoCache = {};
+  async function loadPersonPhoto(id) {
+    if (personPhotoCache[id] !== undefined) return personPhotoCache[id];
+    const title = PERSON_WIKI[id]; if (!title) return (personPhotoCache[id] = null);
+    let src = null;
+    try {
+      const r = await fetchTimeout("https://ko.wikipedia.org/api/rest_v1/page/summary/" + encodeURIComponent(title), {}, 8000);
+      if (r.ok) { const j = await r.json(); src = (j.thumbnail && j.thumbnail.source) || (j.originalimage && j.originalimage.source) || null; }
+    } catch (e) {}
+    if (!src) return (personPhotoCache[id] = null);
+    const img = await new Promise((res) => { const im = new Image(); im.crossOrigin = "anonymous"; im.onload = () => res(im); im.onerror = () => res(null); im.src = src; });
+    personPhotoCache[id] = img; return img;
+  }
   function drawPersonAvatar(cx, id, lvl, blink) {
     const P = PERSONS[id] || {}; const skin = P.skin || "#eec6a0", hair = P.hair || "#333", R = 100, TAU = Math.PI * 2;
     let rx = R * 0.8, ry = R * 0.95; // 얼굴형
@@ -3681,7 +3696,7 @@
         <div id="avAnimal" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${Object.keys(ANIMALS).map((k) => `<button data-animal="${k}" style="font-size:13px;font-weight:700;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:8px 12px;cursor:pointer">${ANIMALS[k]}</button>`).join("")}</div>
         <div style="font-size:12.5px;font-weight:800;margin:6px 0">🧑 인물 (캐리커처)</div>
         <div id="avPerson" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px">${Object.keys(PERSONS).map((k) => `<button data-person="${k}" style="font-size:13px;font-weight:700;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:8px 12px;cursor:pointer">${PERSONS[k].label}</button>`).join("")}</div>
-        <p style="font-size:11px;color:var(--muted);margin-bottom:12px">※ 실제 사진이 아닌 헤어·안경 특징을 살린 만화풍 캐릭터입니다. 정확한 얼굴은 ‘내 이미지 업로드’를 쓰세요.</p>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:12px">※ 선택하면 위키백과(위키미디어 공용·자유 라이선스) 실사 사진을 불러옵니다. 못 불러오면 특징을 살린 캐리커처로 표시됩니다.</p>
         <div style="font-size:12.5px;font-weight:800;margin:6px 0">😀 이모지</div>
         <div id="avEmoji" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${emojis.map((e) => `<button data-emoji="${e}" style="font-size:28px;border:1px solid var(--border);background:var(--bg);border-radius:10px;padding:6px 8px;cursor:pointer">${e}</button>`).join("")}</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -3692,7 +3707,14 @@
       </div>`;
     $("mediaModal").style.display = "flex";
     body.querySelectorAll("#avAnimal button").forEach((b) => { b.onclick = () => { avatarStart("animal", b.dataset.animal, null); closeMedia(); }; });
-    body.querySelectorAll("#avPerson button").forEach((b) => { b.onclick = () => { avatarStart("person", b.dataset.person, null); closeMedia(); }; });
+    body.querySelectorAll("#avPerson button").forEach((b) => { b.onclick = () => {
+      const id = b.dataset.person; closeMedia(); avatarStart("person", id, null); // 즉시 캐리커처로 시작
+      meetChatSys("🧑 " + (PERSONS[id] ? PERSONS[id].label : "") + " 실사 사진을 불러오는 중…");
+      loadPersonPhoto(id).then((img) => {
+        if (img && vcAvatarOn && vcAvatarKind === "person" && vcAvatarVal === id) { vcAvatarImg = img; vcAvatarKind = "img"; meetChatSys("🧑 실사 사진 적용 완료(위키백과)."); }
+        else if (!img) meetChatSys("사진을 불러오지 못해 캐리커처로 표시합니다.");
+      });
+    }; });
     body.querySelectorAll("#avEmoji button").forEach((b) => { b.onclick = () => { avatarStart("emoji", b.dataset.emoji, null); closeMedia(); }; });
     $("avFile").onchange = (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { const img = new Image(); img.onload = () => { avatarStart("img", null, img); closeMedia(); }; img.src = r.result; }; r.readAsDataURL(f); };
     $("avOff").onclick = () => { avatarStop(); closeMedia(); };

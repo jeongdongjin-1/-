@@ -3799,6 +3799,11 @@
     const shoulder = new THREE.Mesh(new THREE.SphereGeometry(2.05, 32, 24, 0, Math.PI * 2, 0, Math.PI * 0.5), clothMat); shoulder.position.set(0, -2.25, 0); shoulder.scale.set(1.18, 0.72, 0.92); body.add(shoulder);
     const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.62, 1.05, 24), skinMat); neck.position.set(0, -1.42, 0.04); body.add(neck);
     const collar = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.17, 12, 28), clothMat); collar.position.set(0, -1.72, 0.1); collar.rotation.x = Math.PI / 2; collar.scale.set(1, 0.7, 1); body.add(collar);
+    // 넥타이(인물 캐리커처용 — 기본 숨김). 가슴에 가리지 않도록 항상 위에 그림.
+    const tieMat = mk(0xd61f26, 0.6); tieMat.depthTest = false;
+    const tie = new THREE.Group(); tie.visible = false; tie.renderOrder = 5; body.add(tie);
+    const tieKnot = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.28, 0.12), tieMat); tieKnot.position.set(0, -1.86, 1.2); tieKnot.rotation.z = Math.PI / 4; tieKnot.renderOrder = 5; tie.add(tieKnot);
+    const tieBlade = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.95, 0.1), tieMat); tieBlade.position.set(0, -2.45, 1.2); tieBlade.renderOrder = 5; tie.add(tieBlade);
     // ---- 머리 ----
     const headPivot = new THREE.Group(); root.add(headPivot);
     const head = new THREE.Mesh(new THREE.SphereGeometry(1.5, 48, 48), skinMat); head.scale.set(1, 1.12, 0.92); headPivot.add(head);
@@ -3834,17 +3839,50 @@
     const hairSL = new THREE.Mesh(hairSideGeo, hairMat); hairSL.position.set(-1.36, -0.25, 0.15); hairSL.scale.set(0.55, 1.7, 0.8); hairGrp.add(hairSL);
     const hairSR = new THREE.Mesh(hairSideGeo, hairMat); hairSR.position.set(1.36, -0.25, 0.15); hairSR.scale.set(0.55, 1.7, 0.8); hairGrp.add(hairSR);
     const hairBack = new THREE.Mesh(new THREE.SphereGeometry(1.46, 32, 24), hairMat); hairBack.position.set(0, -0.1, -0.55); hairBack.scale.set(1, 1.22, 0.78); hairGrp.add(hairBack);
+    // 안경(인물 캐리커처용 — 기본 숨김)
+    const glassMat = mk(0x1c1c1c, 0.4, 0.5), lensMat = new THREE.MeshStandardMaterial({ color: 0x223044, roughness: 0.1, metalness: 0.1, transparent: true, opacity: 0.22 });
+    const glasses = new THREE.Group(); glasses.visible = false; headPivot.add(glasses);
+    const ringGeo = new THREE.TorusGeometry(0.34, 0.045, 10, 24);
+    const gRingL = new THREE.Mesh(ringGeo, glassMat); gRingL.position.set(-0.52, 0.16, 1.5); glasses.add(gRingL);
+    const gRingR = new THREE.Mesh(ringGeo, glassMat); gRingR.position.set(0.52, 0.16, 1.5); glasses.add(gRingR);
+    const gLensL = new THREE.Mesh(new THREE.CircleGeometry(0.33, 24), lensMat); gLensL.position.set(-0.52, 0.16, 1.49); glasses.add(gLensL);
+    const gLensR = new THREE.Mesh(new THREE.CircleGeometry(0.33, 24), lensMat); gLensR.position.set(0.52, 0.16, 1.49); glasses.add(gLensR);
+    const gBridge = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.045, 0.045), glassMat); gBridge.position.set(0, 0.16, 1.52); glasses.add(gBridge);
+    const gTmplL = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.045, 0.045), glassMat); gTmplL.position.set(-0.92, 0.18, 1.2); gTmplL.rotation.y = 0.5; glasses.add(gTmplL);
+    const gTmplR = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.045, 0.045), glassMat); gTmplR.position.set(0.92, 0.18, 1.2); gTmplR.rotation.y = -0.5; glasses.add(gTmplR);
     // 애니메이션 상태
     let t0 = Date.now(), gaze = { x: 0, y: 0, tx: 0, ty: 0, next: 0 }, hairY = 0, hairZ = 0, foxEars = false;
     head3d = {
       canvas, renderer, scene, cam, style: null,
       setStyle(name) {
+        if (PERSONS[name]) return this.setPerson(name); // 인물 캐리커처 3D
         const s = HEAD_STYLES[name] || HEAD_STYLES.mint; this.style = name;
         skinMat.color.setHex(s.skin); hairMat.color.setHex(s.hair); earMat.color.setHex(s.ear); mouthMat.color.setHex(s.mouth); irisMat.color.setHex(s.iris); clothMat.color.setHex(s.cloth);
+        browMat.color.setHex(0x333333); glasses.visible = false; tie.visible = false;
+        hairTop.visible = hairBack.visible = hairSL.visible = hairSR.visible = true; hairTop.scale.set(1, 1.12, 0.95);
         foxEars = name === "fox";
         if (name === "fox") { earL.scale.set(0.8, 1.7, 0.6); earR.scale.set(0.8, 1.7, 0.6); earL.position.set(-1.0, 1.35, 0); earR.position.set(1.0, 1.35, 0); }
         else if (name === "robot") { earL.scale.set(0.5, 0.5, 1.5); earR.scale.set(0.5, 0.5, 1.5); earL.position.set(-1.45, 0, 0); earR.position.set(1.45, 0, 0); }
         else { earL.scale.set(1, 1, 1); earR.scale.set(1, 1, 1); earL.position.set(-1.45, 0, 0); earR.position.set(1.45, 0, 0); }
+      },
+      setPerson(id) {
+        const P = PERSONS[id]; if (!P) return; this.style = id; foxEars = false;
+        skinMat.color.set(P.skin); hairMat.color.set(P.hair); earMat.color.set(P.skin); mouthMat.color.setHex(0x9b3b46);
+        irisMat.color.setHex(0x2a2320); clothMat.color.setHex(0x222831); browMat.color.set(P.brow || "#3a3a3a");
+        earL.scale.set(1, 1, 1); earR.scale.set(1, 1, 1); earL.position.set(-1.45, 0, 0); earR.position.set(1.45, 0, 0);
+        const hs = P.hairStyle, bald = hs === "bald";
+        hairTop.visible = !bald; hairSL.visible = hairSR.visible = true; hairBack.visible = !bald;
+        if (hs === "updo") hairTop.scale.set(1.08, 1.4, 1.02);          // 올림머리(박근혜)
+        else if (hs === "swept") hairTop.scale.set(1.04, 1.18, 1.05);   // 스웹트(트럼프)
+        else if (hs === "thin") hairTop.scale.set(1.0, 0.92, 0.92);     // 숱 적음(바이든)
+        else if (hs === "back" || hs === "side") hairTop.scale.set(1.0, 1.0, 0.93);
+        else hairTop.scale.set(1, 1.12, 0.95);
+        if (bald) { hairSL.scale.set(0.42, 1.1, 0.7); hairSR.scale.set(0.42, 1.1, 0.7); } else { hairSL.scale.set(0.55, 1.7, 0.8); hairSR.scale.set(0.55, 1.7, 0.8); }
+        // 안경
+        const g = P.glasses; glasses.visible = !!g && g !== "none";
+        if (glasses.visible) { const sc = g === "bigclear" ? 1.18 : g === "aviator" ? 1.06 : 1.0; [gRingL, gRingR, gLensL, gLensR].forEach((m) => m.scale.setScalar(sc)); lensMat.opacity = g === "aviator" ? 0.32 : 0.16; }
+        // 넥타이
+        tie.visible = !!P.tie; if (P.tie) tieMat.color.set(P.tie);
       },
       render(p) {
         const now = Date.now(), tt = (now - t0) / 1000;
@@ -4070,7 +4108,10 @@
         <p style="font-size:13px;color:var(--muted);margin-bottom:8px">실제 카메라 배경은 그대로 두고, 아바타가 <b>얼굴을 추적</b>하며 따라다닙니다. 말하면 입이 움직여요.</p>
         <div style="font-size:12.5px;font-weight:800;margin:6px 0">🧊 3D 입체 아바타 — 내 얼굴 실시간 추적(고개·눈·입)</div>
         <div id="avFace3d" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px">${Object.keys(HEAD_STYLES).map((k) => `<button data-face3d="${k}" style="font-size:13px;font-weight:700;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:8px 12px;cursor:pointer">${HEAD_STYLES[k].label}</button>`).join("")}</div>
-        <p style="font-size:11px;color:var(--muted);margin-bottom:12px">※ 본인 얼굴 움직임을 그대로 입힌 3D 캐릭터입니다(특정 실존 인물 복제 아님). 데스크톱 크롬·엣지 권장.</p>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:10px">※ 본인 얼굴 움직임을 그대로 입힌 3D 캐릭터입니다(특정 실존 인물 복제 아님). 데스크톱 크롬·엣지 권장.</p>
+        <div style="font-size:12.5px;font-weight:800;margin:6px 0">🧑‍🎤 3D 인물 캐리커처 — 내 얼굴로 말하고 움직임</div>
+        <div id="avFace3dPerson" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px">${Object.keys(PERSONS).map((k) => `<button data-face3dperson="${k}" style="font-size:13px;font-weight:700;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:8px 12px;cursor:pointer">🧊 ${PERSONS[k].label}</button>`).join("")}</div>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:12px">※ 특징을 살린 <b>3D 캐리커처(스타일라이즈)</b>입니다 — 실사 복제(딥페이크) 아님. 본인 얼굴 움직임으로 입·고개·눈이 움직입니다.</p>
         <div style="font-size:12.5px;font-weight:800;margin:6px 0">🐾 귀여운 동물 (직접 그린 캐릭터)</div>
         <div id="avAnimal" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${Object.keys(ANIMALS).map((k) => `<button data-animal="${k}" style="font-size:13px;font-weight:700;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:8px 12px;cursor:pointer">${ANIMALS[k]}</button>`).join("")}</div>
         <div style="font-size:12.5px;font-weight:800;margin:6px 0">🧑 인물 (캐리커처)</div>
@@ -4086,6 +4127,7 @@
       </div>`;
     $("mediaModal").style.display = "flex";
     body.querySelectorAll("#avFace3d button").forEach((b) => { b.onclick = () => { avatarStart("face3d", b.dataset.face3d, null); closeMedia(); }; });
+    body.querySelectorAll("#avFace3dPerson button").forEach((b) => { b.onclick = () => { avatarStart("face3d", b.dataset.face3dperson, null); closeMedia(); meetChatSys("🧑‍🎤 " + (PERSONS[b.dataset.face3dperson] ? PERSONS[b.dataset.face3dperson].label : "") + " 3D 캐리커처 — 내 얼굴로 말합니다."); }; });
     body.querySelectorAll("#avAnimal button").forEach((b) => { b.onclick = () => { avatarStart("animal", b.dataset.animal, null); closeMedia(); }; });
     body.querySelectorAll("#avPerson button").forEach((b) => { b.onclick = () => {
       const id = b.dataset.person; closeMedia(); avatarStart("person", id, null); // 즉시 캐리커처로 시작
@@ -4155,7 +4197,7 @@
     Object.values(vcPeers).forEach((pe) => { const s = pe.pc.getSenders().find((x) => x.track && x.track.kind === "audio"); if (s && vcVoiceTrack) s.replaceTrack(vcVoiceTrack); });
     const b = $("meetVoice"); if (b) { b.classList.add("live"); b.textContent = "🎚"; }
   }
-  function applyAvatarVoice(kind, val) { const p = kind === "person" ? (PERSON_VOICE[val] || 0) : kind === "animal" ? (ANIMAL_VOICE[val] || 0) : 0; if (p) { meetVoicePitch(p); meetChatSys("🎚 이 아바타의 캐릭터 보이스로 변조해 송출합니다(본인 목소리 변조 · 딥페이크 아님)."); } }
+  function applyAvatarVoice(kind, val) { const p = (kind === "person" || (kind === "face3d" && PERSON_VOICE[val] != null)) ? (PERSON_VOICE[val] || 0) : kind === "animal" ? (ANIMAL_VOICE[val] || 0) : 0; if (p) { meetVoicePitch(p); meetChatSys("🎚 이 아바타의 캐릭터 보이스로 변조해 송출합니다(본인 목소리 변조 · 딥페이크 아님)."); } }
 
   function vcMakePeer(id, nick) {
     if (vcPeers[id]) return vcPeers[id];

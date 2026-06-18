@@ -3440,7 +3440,7 @@
 
   /* ===== 가상화 아바타 (카메라 대신 캔버스 송출 + 음성 반응) ===== */
   let vcAvatarOn = false, vcAvatarKind = null, vcAvatarVal = null, vcAvatarImg = null;
-  let vcAvCanvas = null, vcAvStream = null, vcAvTrack = null, vcAvRAF = 0, vcAvAn = null, vcAvData = null, vcAvT = 0, vcAvVideo = null, vcAvatarTie = null;
+  let vcAvCanvas = null, vcAvStream = null, vcAvTrack = null, vcAvRAF = 0, vcAvAn = null, vcAvData = null, vcAvT = 0, vcAvVideo = null, vcAvatarTie = null, vcAvatarCutout = false;
   let vcFd = null, vcFdReady = null, vcFdTimer = null, vcFdBusy = false, vcFaceTarget = null, vcFace = null; // 얼굴 추적
   let vcLvlSmooth = 0, vcBlinkNext = 0, vcBlinkStart = 0; // VTuber 모션: 립싱크 평활·눈 깜빡임
   function blinkAmount() { // 0(뜸)~1(감음) 자연스러운 자동 깜빡임
@@ -3555,6 +3555,31 @@
     leemb: { label: "이명박", skin: "#e7ba90", face: "square", hair: "#2a2a2a", hairStyle: "bald", glasses: "clear", tie: "#555555", smile: "soft", age: 1 },
     parkgh: { label: "박근혜", skin: "#eecbb0", face: "oval", hair: "#2a2320", hairStyle: "updo", glasses: "none", tie: null, smile: "soft", age: 1, female: true },
   };
+  // 사진 배경 제거 (MediaPipe Selfie Segmentation) — 인물만 컷아웃
+  let segReady = null;
+  function ensureSelfieSeg() {
+    if (window.SelfieSegmentation) return Promise.resolve(true);
+    if (segReady) return segReady;
+    segReady = (async () => { try { await loadScript("https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/selfie_segmentation.js"); return !!window.SelfieSegmentation; } catch (e) { return false; } })();
+    return segReady;
+  }
+  async function removeBg(img) {
+    if (!(await ensureSelfieSeg()) || !window.SelfieSegmentation) return null;
+    return new Promise((res) => {
+      let done = false; const fin = (v) => { if (done) return; done = true; res(v); };
+      let ss; try { ss = new window.SelfieSegmentation({ locateFile: (f) => "https://cdn.jsdelivr.net/npm/@mediapipe/selfie_segmentation/" + f }); ss.setOptions({ modelSelection: 1 }); } catch (e) { return fin(null); }
+      ss.onResults((r) => {
+        try {
+          const w = img.width, h = img.height, c = document.createElement("canvas"); c.width = w; c.height = h; const x = c.getContext("2d");
+          x.drawImage(r.segmentationMask, 0, 0, w, h); x.globalCompositeOperation = "source-in"; x.drawImage(img, 0, 0, w, h); x.globalCompositeOperation = "source-over";
+          const out = new Image(); out.onload = () => fin(out); out.onerror = () => fin(null); out.src = c.toDataURL("image/png");
+        } catch (e) { fin(null); }
+        try { ss.close(); } catch (e) {}
+      });
+      ss.send({ image: img }).catch(() => fin(null));
+      setTimeout(() => fin(null), 6000);
+    });
+  }
   // 실사 사진: 위키백과(위키미디어 공용, 자유 라이선스, CORS 허용)에서 불러옴
   const PERSON_WIKI = { trump: "도널드 트럼프", biden: "조 바이든", leejm: "이재명", moon: "문재인", kimdj: "김대중", rohmh: "노무현", leemb: "이명박", parkgh: "박근혜" };
   const personPhotoCache = {};
@@ -3670,9 +3695,19 @@
     } else if (vcAvatarKind === "animal") {
       drawCuteAnimal(cx, vcAvatarVal, lvl, blink);
     } else if (vcAvatarKind === "img" && vcAvatarImg) {
-      const RX = 110, RY = 142, TAU2 = Math.PI * 2; cx.save(); cx.beginPath(); cx.ellipse(0, 0, RX, RY, 0, 0, TAU2); cx.closePath(); cx.clip();
-      const im = vcAvatarImg, iw = im.width, ih = im.height, sc = Math.max((RX * 2) / iw, (RY * 2) / ih), dw = iw * sc, dh = ih * sc, ox = -dw / 2, oy = -dh / 2;
-      cx.drawImage(im, ox, oy, dw, dh); // 사진 전체
+      const RX = 110, RY = 142, TAU2 = Math.PI * 2;
+      const im = vcAvatarImg, iw = im.width, ih = im.height;
+      let dw, dh, ox, oy;
+      cx.save();
+      if (vcAvatarCutout) { // 배경 제거된 인물: 타원 클립 없이 컷아웃 + 그림자(입체감)
+        const sc = Math.min((RX * 2.4) / iw, (RY * 2.2) / ih); dw = iw * sc; dh = ih * sc; ox = -dw / 2; oy = -dh / 2 - RY * 0.12;
+        cx.shadowColor = "rgba(0,0,0,.45)"; cx.shadowBlur = 18; cx.shadowOffsetX = 6; cx.shadowOffsetY = 10; // 입체 그림자
+        cx.drawImage(im, ox, oy, dw, dh); cx.shadowColor = "transparent";
+      } else { // 원본 사진: 타원 액자
+        const sc = Math.max((RX * 2) / iw, (RY * 2) / ih); dw = iw * sc; dh = ih * sc; ox = -dw / 2; oy = -dh / 2;
+        cx.beginPath(); cx.ellipse(0, 0, RX, RY, 0, 0, TAU2); cx.clip();
+        cx.drawImage(im, ox, oy, dw, dh);
+      }
       // 말하는 효과: 검출된 입 위치(없으면 추정)에 입 벌림 + 턱 살짝 내림
       const pf = vcAvatarVal && photoFaceCache[vcAvatarVal];
       const myN = (pf && pf.mouth) ? pf.mouth.y : 0.62, mxN = (pf && pf.mouth) ? pf.mouth.x : 0.5;
@@ -3689,7 +3724,7 @@
         [pf.reye, pf.leye].forEach((ey) => { const ex = ox + ey.x * dw, ee = oy + ey.y * dh; cx.beginPath(); cx.ellipse(ex, ee, dw * 0.075, dh * 0.05 * blink + 1, 0, 0, TAU2); cx.fill(); });
       }
       cx.restore();
-      cx.lineWidth = 6; cx.strokeStyle = "#fff"; cx.beginPath(); cx.ellipse(0, 0, RX, RY, 0, 0, TAU2); cx.stroke();
+      if (!vcAvatarCutout) { cx.lineWidth = 6; cx.strokeStyle = "#fff"; cx.beginPath(); cx.ellipse(0, 0, RX, RY, 0, 0, TAU2); cx.stroke(); }
     } else {
       cx.font = "150px serif"; cx.textAlign = "center"; cx.textBaseline = "middle"; cx.fillText(vcAvatarVal || "🙂", 0, 0);
       if (lvl > 0.07) { cx.fillStyle = "rgba(0,0,0,.6)"; cx.beginPath(); cx.ellipse(0, 40, 24, 5 + lvl * 26, 0, 0, 7); cx.fill(); }
@@ -3706,7 +3741,7 @@
       if (!vcAvCanvas.captureStream) { alert("이 브라우저는 아바타 송출을 지원하지 않습니다(데스크톱 크롬·엣지 권장)."); return; }
     }
     if (vcScreen) meetStopShare();
-    vcAvatarKind = kind; vcAvatarVal = val; vcAvatarImg = img || null;
+    vcAvatarKind = kind; vcAvatarVal = val; vcAvatarImg = img || null; vcAvatarCutout = false;
     vcAvatarTie = (kind === "person" && PERSONS[val]) ? PERSONS[val].tie : null; // 인물 넥타이색
     vcAvCanvas.width = 480; vcAvCanvas.height = 360;
     if (!vcAvVideo) { vcAvVideo = document.createElement("video"); vcAvVideo.muted = true; vcAvVideo.playsInline = true; vcAvVideo.autoplay = true; }
@@ -3764,12 +3799,14 @@
       const id = b.dataset.person; closeMedia(); avatarStart("person", id, null); // 즉시 캐리커처로 시작
       meetChatSys("🧑 " + (PERSONS[id] ? PERSONS[id].label : "") + " 실사 사진을 불러오는 중…");
       loadPersonPhoto(id).then((img) => {
-        if (img && vcAvatarOn && vcAvatarKind === "person" && vcAvatarVal === id) { vcAvatarImg = img; vcAvatarKind = "img"; meetChatSys("🧑 실사 사진 적용 완료(위키백과)."); }
-        else if (!img) meetChatSys("사진을 불러오지 못해 캐리커처로 표시합니다.");
+        if (img && vcAvatarOn && vcAvatarKind === "person" && vcAvatarVal === id) {
+          vcAvatarImg = img; vcAvatarKind = "img"; vcAvatarCutout = false; meetChatSys("🧑 실사 사진 적용 완료(위키백과). 배경 제거 중…");
+          removeBg(img).then((cut) => { if (cut && vcAvatarVal === id && vcAvatarKind === "img") { vcAvatarImg = cut; vcAvatarCutout = true; meetChatSys("🧼 배경을 제거해 인물만 표시합니다(입체 효과)."); } else if (!cut) meetChatSys("배경 제거 실패 — 원본 사진으로 표시합니다."); });
+        } else if (!img) meetChatSys("사진을 불러오지 못해 캐리커처로 표시합니다.");
       });
     }; });
     body.querySelectorAll("#avEmoji button").forEach((b) => { b.onclick = () => { avatarStart("emoji", b.dataset.emoji, null); closeMedia(); }; });
-    $("avFile").onchange = (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { const img = new Image(); img.onload = () => { avatarStart("img", null, img); closeMedia(); }; img.src = r.result; }; r.readAsDataURL(f); };
+    $("avFile").onchange = (e) => { const f = e.target.files && e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = () => { const img = new Image(); img.onload = () => { avatarStart("img", null, img); closeMedia(); meetChatSys("🧼 배경 제거 중…"); removeBg(img).then((cut) => { if (cut && vcAvatarKind === "img") { vcAvatarImg = cut; vcAvatarCutout = true; meetChatSys("🧼 배경을 제거했습니다."); } }); }; img.src = r.result; }; r.readAsDataURL(f); };
     $("avOff").onclick = () => { avatarStop(); closeMedia(); };
   }
 

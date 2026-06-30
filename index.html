@@ -3094,7 +3094,7 @@
     }
     throw lastErr || new Error("Gemini 429 모든 키 할당량 초과");
   }
-  let aiTransOn = false, aiStt = null, aiSttOn = false, aiClockTimer = null;
+  let aiTransOn = false, aiStt = null, aiSttOn = false, aiSttWant = false, aiClockTimer = null;
   const aiTime = (t) => t ? new Date(t).toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "";
   function aiPush(who, text, color, cls) { const m = { who, text, color, cls, t: Date.now() }; aiMsgs.push(m); if (aiTransOn) aiTranslateMsg(m); renderAiMsgs(); }
   function aiClockTick() { const c = $("aiClock"); if (c) c.textContent = "🕒 " + new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }); }
@@ -3126,15 +3126,20 @@
   }
   // 음성으로 질문 입력 (Web Speech API)
   function aiVoiceToggle() {
-    if (aiSttOn) { if (aiStt) { try { aiStt.onend = null; aiStt.stop(); } catch (e) {} aiStt = null; } aiSttOn = false; $("aiVoiceBtn").classList.remove("live"); return; }
-    if (!sttSupported()) { alert("이 브라우저는 음성 인식을 지원하지 않습니다. 크롬·엣지 웹브라우저를 사용해 주세요."); return; }
+    if (aiSttWant) { aiSttWant = false; if (aiStt) { try { aiStt.onend = null; aiStt.stop(); } catch (e) {} aiStt = null; } aiSttOn = false; $("aiVoiceBtn").classList.remove("live"); return; }
+    if (!sttSupported()) { showToast("이 브라우저는 음성 인식을 지원하지 않습니다. 크롬·엣지 웹브라우저를 사용해 주세요."); return; }
+    aiSttWant = true; aiSttStart();
+  }
+  function aiSttStart() {
+    if (aiStt || !aiSttWant) return;
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    try { aiStt = new SR(); } catch (e) { return; }
-    aiStt.lang = "ko-KR"; aiStt.continuous = false; aiStt.interimResults = true;
-    aiStt.onresult = (e) => { let fin = "", itm = ""; for (let i = e.resultIndex; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) fin += r[0].transcript; else itm += r[0].transcript; } $("aiQ").value = (fin || itm).trim(); };
-    aiStt.onend = () => { aiSttOn = false; $("aiVoiceBtn").classList.remove("live"); };
-    aiStt.onerror = (e) => { aiSttOn = false; $("aiVoiceBtn").classList.remove("live"); if (e.error === "not-allowed" || e.error === "service-not-allowed") alert("마이크 권한이 차단되어 있습니다. 주소창 🔒에서 마이크를 허용해 주세요."); else if (e.error === "network") alert("음성 인식 서버 연결 실패. 인터넷 연결이 필요하며 설치형 앱에서는 동작하지 않습니다(크롬·엣지 웹브라우저 권장)."); };
-    try { aiStt.start(); aiSttOn = true; $("aiVoiceBtn").classList.add("live"); } catch (e) {}
+    try { aiStt = new SR(); } catch (e) { aiStt = null; return; }
+    aiStt.lang = "ko-KR"; aiStt.continuous = true; aiStt.interimResults = true; aiStt.maxAlternatives = 1;
+    aiStt.onstart = () => { aiSttOn = true; const b = $("aiVoiceBtn"); if (b) b.classList.add("live"); };
+    aiStt.onresult = (e) => { try { let fin = "", itm = ""; for (let i = e.resultIndex; i < e.results.length; i++) { const r = e.results[i]; if (r.isFinal) fin += r[0].transcript; else itm += r[0].transcript; } const q = $("aiQ"); if (q) q.value = (fin || itm).trim(); } catch (_) {} };
+    aiStt.onerror = (e) => { const err = (e && e.error) || ""; if (err === "not-allowed" || err === "service-not-allowed") { aiSttWant = false; showToast("마이크 권한이 차단된 것 같습니다. 주소창 🔒에서 마이크를 허용해 주세요."); } /* no-speech·network 등은 onend가 자동 재시작 */ };
+    aiStt.onend = () => { aiStt = null; aiSttOn = false; if (aiSttWant) setTimeout(aiSttStart, 250); else { const b = $("aiVoiceBtn"); if (b) b.classList.remove("live"); } };
+    try { aiStt.start(); } catch (e) { aiStt = null; if (aiSttWant) setTimeout(aiSttStart, 400); }
   }
   function aiTranscript() { return aiMsgs.filter((m) => !m.cls || m.cls === "q").slice(-8).map((m) => `${m.cls === "q" ? "시청자질문" : m.who}: ${m.text}`).join("\n"); }
   function aiControls() { $("aiStart").textContent = aiRunning ? "▶ 진행중" : "▶ 시작"; $("aiStart").disabled = aiRunning; $("aiStop").disabled = !aiRunning; }
@@ -4511,13 +4516,15 @@
   // 말한 내용(음성 인식 최종 결과)을 채팅에 자동 입력 + 브로드캐스트 — 목소리 지문 닉네임 사용
   function meetVoiceMsg(text) {
     text = (text || "").trim(); if (!text || !vcOn) return;
-    const used = vcMfccBuf.slice(-40), mfcc = avgVec(used), frames = used.length, pitch = robustPitch(vcPitchBuf), centroid = recentAvg(vcCentBuf);
-    const sp = assignSpeaker(pitch, mfcc, centroid, frames);
-    const nick = sp ? sp.nick : meetNick(); // 목소리로 식별한 닉네임
-    const g = sp ? sp.gender : meetGender(); // 성별 색(남=파랑/여=빨강)
+    let nick = meetNick(), g = meetGender(); // 기본값(화자 식별 실패해도 항상 표시)
+    try {
+      const used = vcMfccBuf.slice(-40), mfcc = avgVec(used), frames = used.length, pitch = robustPitch(vcPitchBuf), centroid = recentAvg(vcCentBuf);
+      const sp = assignSpeaker(pitch, mfcc, centroid, frames);
+      if (sp) { nick = sp.nick; g = sp.gender; } // 목소리로 식별한 닉네임/성별
+    } catch (e) {}
     vcPitchBuf = []; vcMfccBuf = []; vcCentBuf = []; // 다음 발화 준비
     meetChatAdd(nick, text, true, true, g);
-    rtcSend({ t: "chat", from: myId, nick, text, voice: true, g });
+    try { rtcSend({ t: "chat", from: myId, nick, text, voice: true, g }); } catch (e) {}
   }
 
   /* 이모티콘 + 폭죽 효과 */
@@ -4560,14 +4567,16 @@
     vcStt.lang = "ko-KR"; vcStt.continuous = true; vcStt.interimResults = true; vcStt.maxAlternatives = 1;
     vcStt.onstart = () => { sttHeard = false; sttUpdateBtn(); if (!sttAnnounced) { sttAnnounced = true; meetChatSys("🎙 음성 인식이 켜졌습니다 — 또렷하게 말해보세요. (CC 버튼이 초록색이면 듣는 중)"); } };
     vcStt.onresult = (e) => {
-      let fin = "", itm = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const r = e.results[i];
-        if (r.isFinal) fin += r[0].transcript; else itm += r[0].transcript;
-      }
-      const ph = $("meetChatInput");
-      if (itm) { sttHeard = true; sttNotAllowed = 0; if (ph) ph.placeholder = "🎙 " + itm.trim(); meetCaptionShow(meetNick(), itm.trim(), ""); }
-      if (fin.trim()) { sttHeard = true; sttNotAllowed = 0; meetVoiceMsg(fin); if (ph) ph.placeholder = "메시지 입력…"; }
+      try {
+        let fin = "", itm = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const r = e.results[i];
+          if (r.isFinal) fin += r[0].transcript; else itm += r[0].transcript;
+        }
+        const ph = $("meetChatInput");
+        if (itm) { sttHeard = true; sttNotAllowed = 0; if (ph) ph.placeholder = "🎙 " + itm.trim(); try { meetCaptionShow(meetNick(), itm.trim(), ""); } catch (e2) {} }
+        if (fin.trim()) { sttHeard = true; sttNotAllowed = 0; meetVoiceMsg(fin); if (ph) ph.placeholder = "메시지 입력…"; }
+      } catch (e3) { try { console.warn("stt onresult", e3); } catch (_) {} }
     };
     vcStt.onerror = (e) => {
       const err = e.error || "unknown";

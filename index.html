@@ -732,6 +732,7 @@
   <div class="tabs">
     <button id="tabBtnDash" class="active" onclick="switchTab('dash')"><span class="ti">📊</span><span class="tl">대시보드</span></button>
     <button id="tabBtnEx" onclick="switchTab('ex')"><span class="ti">💱</span><span class="tl">환전</span></button>
+    <button id="tabBtnTravel" onclick="switchTab('travel')"><span class="ti">✈️</span><span class="tl">여행추천</span></button>
     <button id="tabBtnNews" onclick="switchTab('news')"><span class="ti">📰</span><span class="tl">뉴스</span></button>
     <button id="tabBtnBan" onclick="switchTab('ban')"><span class="ti">🛂</span><span class="tl">출국제한</span></button>
     <button id="tabBtnWorld" onclick="switchTab('world')"><span class="ti">🌐</span><span class="tl">세계정세</span></button>
@@ -816,6 +817,32 @@
       <div class="tip"><h4>6) 환율이 쌀 때 분할 환전</h4><p>대시보드 탭의 흐름 코멘트가 '하락(원화 강세)'일 때가 외화 사기 유리합니다. 한 번에 말고 며칠 나눠 환전하면 평균 단가를 낮출 수 있습니다.</p></div>
     </div>
   </div><!-- /tab-exchange -->
+
+  <div id="tab-travel" style="display:none">
+    <h3 class="sec">✈️ 환율로 보는 여행 가성비 — 지금 어디가 싼가</h3>
+    <div id="travelStatus" style="font-size:13px;color:var(--muted);margin:4px 0 12px">환율 추이를 불러오는 중…</div>
+    <div id="travelTop" class="tips" style="margin-bottom:14px;display:none"></div>
+    <div class="card" style="padding:14px;margin-bottom:14px">
+      <b style="font-size:14px">여행 가성비 랭킹 — 종합 점수</b>
+      <div style="font-size:12px;color:var(--muted);margin:2px 0 10px">원화 10,000원의 구매력이 3·6·12개월 전보다 얼마나 늘었는지의 평균 · <span style="color:var(--down);font-weight:700">파랑 = 싸짐</span> · <span style="color:var(--up);font-weight:700">빨강 = 비싸짐</span></div>
+      <div id="travelBars"></div>
+    </div>
+    <div class="card" style="padding:14px;margin-bottom:14px">
+      <b style="font-size:14px">분석 코멘트</b>
+      <div id="travelComment" style="font-size:13.5px;line-height:1.7;margin-top:8px;color:var(--text)"></div>
+    </div>
+    <div class="card ex-panel" style="padding:14px;margin-bottom:14px">
+      <b style="font-size:14px">상세 데이터</b>
+      <table class="cmp" style="width:100%;margin-top:8px">
+        <thead><tr><th style="text-align:left">행선지</th><th>₩10,000 환산</th><th>3개월</th><th>6개월</th><th>12개월</th><th>종합</th></tr></thead>
+        <tbody id="travelTbody"></tbody>
+      </table>
+      <div style="font-size:12px;color:var(--muted);margin-top:10px">
+        · 변화율 = 과거 대비 지금 10,000원으로 살 수 있는 현지통화의 증감(ECB 기준환율 · frankfurter.dev). 양수 = 여행비가 싸짐.<br>
+        · 실제 환전 수수료·현지 물가 변동은 반영하지 않은 순수 환율 관점입니다. 대만·베트남은 ECB 미고시로 제외.
+      </div>
+    </div>
+  </div><!-- /tab-travel -->
 
   <div id="tab-news" style="display:none">
     <div class="news-bar" id="newsChips"></div>
@@ -4870,10 +4897,11 @@
   }
 
   window.switchTab = function (t) {
-    const map = { dash: "tab-dashboard", ex: "tab-exchange", news: "tab-news", ban: "tab-ban", world: "tab-world", chat: "tab-chat", ai: "tab-ai", meet: "tab-meet" };
+    const map = { dash: "tab-dashboard", ex: "tab-exchange", travel: "tab-travel", news: "tab-news", ban: "tab-ban", world: "tab-world", chat: "tab-chat", ai: "tab-ai", meet: "tab-meet" };
     Object.entries(map).forEach(([k, id]) => { $(id).style.display = (k === t) ? "" : "none"; });
     $("tabBtnDash").classList.toggle("active", t === "dash");
     $("tabBtnEx").classList.toggle("active", t === "ex");
+    $("tabBtnTravel").classList.toggle("active", t === "travel");
     $("tabBtnNews").classList.toggle("active", t === "news");
     $("tabBtnBan").classList.toggle("active", t === "ban");
     $("tabBtnWorld").classList.toggle("active", t === "world");
@@ -4882,6 +4910,7 @@
     $("tabBtnMeet").classList.toggle("active", t === "meet");
     try {
       if (t === "ex") renderExchange();
+      if (t === "travel" && window.loadTravel) window.loadTravel();
       if (t === "news" && !newsLoaded) loadNews();
       if (t === "ban") renderBan();
       if (t === "world") loadWorld();
@@ -5071,6 +5100,104 @@
       location.reload();
     });
   }
+</script>
+
+<script>
+/* ===== 여행추천 탭: 환율 추이 기반 여행 가성비 (frankfurter.dev, 키 없음) ===== */
+(function () {
+  const CURS = {
+    IDR: { name: "인도네시아", flag: "🇮🇩", fmt: v => Math.round(v).toLocaleString() },
+    PHP: { name: "필리핀", flag: "🇵🇭", fmt: v => v.toFixed(0) },
+    JPY: { name: "일본", flag: "🇯🇵", fmt: v => Math.round(v).toLocaleString() },
+    THB: { name: "태국", flag: "🇹🇭", fmt: v => v.toFixed(0) },
+    MYR: { name: "말레이시아", flag: "🇲🇾", fmt: v => v.toFixed(1) },
+    EUR: { name: "유럽(유로존)", flag: "🇪🇺", fmt: v => v.toFixed(2) },
+    SGD: { name: "싱가포르", flag: "🇸🇬", fmt: v => v.toFixed(2) },
+    GBP: { name: "영국", flag: "🇬🇧", fmt: v => v.toFixed(2) },
+    HKD: { name: "홍콩", flag: "🇭🇰", fmt: v => v.toFixed(1) },
+    USD: { name: "미국", flag: "🇺🇸", fmt: v => v.toFixed(2) },
+    AUD: { name: "호주", flag: "🇦🇺", fmt: v => v.toFixed(2) },
+    CNY: { name: "중국", flag: "🇨🇳", fmt: v => v.toFixed(1) },
+  };
+  const SYMS = Object.keys(CURS).join(",");
+  const $t = (id) => document.getElementById(id);
+  let loaded = false;
+
+  function iso(d) { return d.toISOString().slice(0, 10); }
+  function monthsAgo(n) { const d = new Date(); d.setMonth(d.getMonth() - n); return iso(d); }
+  async function fx(dateStr) {
+    const r = await fetch(`https://api.frankfurter.dev/v1/${dateStr}?amount=10000&base=KRW&symbols=${SYMS}`);
+    if (!r.ok) throw new Error("fx " + dateStr);
+    return r.json();
+  }
+  const pct = (now, past) => (now / past - 1) * 100;
+  const fp = (v) => (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
+  const cls = (v) => v >= 0 ? "var(--down)" : "var(--up)"; // 싸짐=파랑, 비싸짐=빨강 (원화강세=환율하락 관습)
+
+  window.loadTravel = async function (force) {
+    if (loaded && !force) return;
+    const status = $t("travelStatus");
+    try {
+      // 1시간 캐시
+      let data = null;
+      try {
+        const c = JSON.parse(localStorage.getItem("travelFx") || "null");
+        if (c && Date.now() - c.at < 3600e3) data = c.data;
+      } catch (e) {}
+      if (!data) {
+        const [now, m3, m6, y1] = await Promise.all([fx("latest"), fx(monthsAgo(3)), fx(monthsAgo(6)), fx(monthsAgo(12))]);
+        data = { now, m3, m6, y1 };
+        try { localStorage.setItem("travelFx", JSON.stringify({ at: Date.now(), data })); } catch (e) {}
+      }
+      const rows = Object.keys(CURS).map((c) => {
+        const n = data.now.rates[c], a3 = pct(n, data.m3.rates[c]), a6 = pct(n, data.m6.rates[c]), a12 = pct(n, data.y1.rates[c]);
+        return { c, ...CURS[c], now: n, m3: a3, m6: a6, y1: a12, score: (a3 + a6 + a12) / 3 };
+      }).sort((a, b) => b.score - a.score);
+
+      // 요약 카드
+      const best = rows[0], second = rows[1], worst = rows[rows.length - 1];
+      $t("travelTop").style.display = "";
+      $t("travelTop").innerHTML =
+        `<div class="tip"><h4>🏆 지금 최고의 가성비</h4><p><b>${best.flag} ${best.name}</b> — 종합 <b style="color:${cls(best.score)}">${fp(best.score)}</b>. 1년 전보다 같은 돈으로 ${fp(best.y1)} 더 쓸 수 있습니다.</p></div>` +
+        `<div class="tip"><h4>🥈 차선책</h4><p><b>${second.flag} ${second.name}</b> — 종합 <b style="color:${cls(second.score)}">${fp(second.score)}</b>.</p></div>` +
+        `<div class="tip"><h4>⚠️ 지금은 비추</h4><p><b>${worst.flag} ${worst.name}</b> — 종합 <b style="color:${cls(worst.score)}">${fp(worst.score)}</b>. 원화 구매력이 밀리는 중입니다.</p></div>`;
+
+      // 랭킹 바
+      const maxAbs = Math.max(...rows.map((r) => Math.abs(r.score))) || 1;
+      $t("travelBars").innerHTML = rows.map((r) => {
+        const w = Math.max(2, Math.abs(r.score) / maxAbs * 100);
+        return `<div style="display:flex;align-items:center;gap:8px;margin:6px 0" title="3개월 ${fp(r.m3)} · 6개월 ${fp(r.m6)} · 12개월 ${fp(r.y1)}">
+          <div style="width:110px;flex:none;font-size:13px;font-weight:600;text-align:right">${r.flag} ${r.name}</div>
+          <div style="flex:1;background:transparent;position:relative;height:16px">
+            <div style="position:absolute;left:0;top:1px;height:14px;width:${w}%;background:${cls(r.score)};border-radius:0 4px 4px 0;opacity:.9"></div>
+          </div>
+          <div style="width:58px;flex:none;font-size:12.5px;font-weight:700;color:${cls(r.score)};font-variant-numeric:tabular-nums">${fp(r.score)}</div>
+        </div>`;
+      }).join("");
+
+      // 자동 코멘트
+      const cheap = rows.filter((r) => r.score >= 3), exp = rows.filter((r) => r.score < 0);
+      const recentOnly = rows.filter((r) => r.m3 >= 3 && r.y1 < 0 && r.score < 3);
+      let html = "";
+      if (cheap.length) html += `<p style="margin-bottom:8px"><b>${cheap.map((r) => r.flag + r.name).join(" · ")}</b> — 세 기간 평균 +3% 이상으로 지금이 뚜렷한 저가 구간입니다.</p>`;
+      if (recentOnly.length) html += `<p style="margin-bottom:8px"><b>${recentOnly.map((r) => r.flag + r.name).join(" · ")}</b> — 최근 3개월에만 싸진 곳입니다. 1년 전 대비로는 아직 비싸니 추세가 이어지는지 지켜볼 가치가 있습니다.</p>`;
+      if (exp.length) html += `<p><b>${exp.map((r) => r.flag + r.name).join(" · ")}</b> — 원화 구매력이 하락해 지금 가면 손해 보는 행선지입니다.</p>`;
+      $t("travelComment").innerHTML = html || "<p>뚜렷한 우위 지역이 없는 균형 구간입니다.</p>";
+
+      // 표
+      $t("travelTbody").innerHTML = rows.map((r) => {
+        const td = (v) => `<td style="color:${cls(v)};font-variant-numeric:tabular-nums">${fp(v)}</td>`;
+        return `<tr><td style="text-align:left">${r.flag} ${r.name} (${r.c})</td><td style="font-variant-numeric:tabular-nums">${r.fmt(r.now)}</td>${td(r.m3)}${td(r.m6)}${td(r.y1)}<td style="font-weight:700;color:${cls(r.score)}">${fp(r.score)}</td></tr>`;
+      }).join("");
+
+      status.textContent = `기준: 최신 ECB 고시 ${data.now.date} · 비교 시점 ${data.m3.date} / ${data.m6.date} / ${data.y1.date} · 1시간마다 자동 갱신`;
+      loaded = true;
+    } catch (err) {
+      console.warn("여행추천 로드 오류:", err);
+      status.textContent = "환율 데이터를 불러오지 못했습니다. 잠시 후 여행추천 탭을 다시 열어주세요.";
+    }
+  };
+})();
 </script>
 </body>
 </html>

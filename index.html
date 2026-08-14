@@ -819,29 +819,69 @@
   </div><!-- /tab-exchange -->
 
   <div id="tab-travel" style="display:none">
-    <h3 class="sec">✈️ 환율로 보는 여행 가성비 — 지금 어디가 싼가</h3>
+    <h3 class="sec">✈️ 여행추천 — 환율이 말해주는 지금 갈 곳</h3>
     <div id="travelStatus" style="font-size:13px;color:var(--muted);margin:4px 0 12px">환율 추이를 불러오는 중…</div>
-    <div id="travelTop" class="tips" style="margin-bottom:14px;display:none"></div>
+
+    <div id="travelHero" style="margin-bottom:14px"></div>
+
+    <div id="travelFilters" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px"></div>
+
+    <div id="travelCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-bottom:16px"></div>
+
+    <div class="card ex-panel" style="padding:14px;margin-bottom:14px">
+      <b style="font-size:14px">📅 성수기 캘린더</b>
+      <div style="font-size:12px;color:var(--muted);margin:2px 0 8px"><span style="display:inline-block;width:10px;height:10px;background:var(--accent);border-radius:2px;vertical-align:-1px"></span> 여행 적기 · <span style="color:var(--up);font-weight:700">●</span> 성수기(항공·숙소 비쌈) — 적기이면서 성수기가 아닌 달이 노려볼 구간입니다</div>
+      <div id="travelSeason" style="overflow-x:auto"></div>
+      <div id="travelFest" style="font-size:12.5px;color:var(--muted);margin-top:10px;line-height:1.7"></div>
+    </div>
+
     <div class="card" style="padding:14px;margin-bottom:14px">
-      <b style="font-size:14px">여행 가성비 랭킹 — 종합 점수</b>
+      <b style="font-size:14px">💰 내 예산으로 얼마나 쓸 수 있나</b>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+        <input id="travelBudget" type="number" value="100" min="1" style="width:110px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text)" />
+        <span style="font-size:13px">만원 환전 시 →</span>
+      </div>
+      <div id="travelBudgetOut" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px"></div>
+    </div>
+
+    <div class="card" style="padding:14px;margin-bottom:14px">
+      <b style="font-size:14px">🔔 환율 목표 알림</b>
+      <div style="font-size:12px;color:var(--muted);margin:2px 0 8px">₩10,000 환산액이 목표 이상이 되면(= 그 나라 여행이 목표만큼 싸지면) 사이트 접속 시 알려드립니다.</div>
+      <div id="travelAlertBanner"></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select id="travelAlertCur" style="padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text)"></select>
+        <input id="travelAlertTarget" type="number" step="any" placeholder="목표 환산액" style="width:130px;padding:8px;border:1px solid var(--border);border-radius:8px;background:var(--card);color:var(--text)" />
+        <button id="travelAlertAdd" style="padding:8px 14px;border-radius:8px;background:var(--accent);color:var(--on-accent);font-weight:700;border:none;cursor:pointer">추가</button>
+      </div>
+      <div id="travelAlertList" style="margin-top:8px;display:flex;flex-direction:column;gap:6px"></div>
+    </div>
+
+    <div class="card" style="padding:14px;margin-bottom:14px">
+      <b style="font-size:14px">📊 가성비 랭킹 — 환율 모멘텀 종합 점수</b>
       <div style="font-size:12px;color:var(--muted);margin:2px 0 10px">원화 10,000원의 구매력이 3·6·12개월 전보다 얼마나 늘었는지의 평균 · <span style="color:var(--down);font-weight:700">파랑 = 싸짐</span> · <span style="color:var(--up);font-weight:700">빨강 = 비싸짐</span></div>
       <div id="travelBars"></div>
     </div>
+
     <div class="card" style="padding:14px;margin-bottom:14px">
-      <b style="font-size:14px">분석 코멘트</b>
+      <b style="font-size:14px">🔎 애널리스트 코멘트</b>
       <div id="travelComment" style="font-size:13.5px;line-height:1.7;margin-top:8px;color:var(--text)"></div>
     </div>
-    <div class="card ex-panel" style="padding:14px;margin-bottom:14px">
-      <b style="font-size:14px">상세 데이터</b>
-      <table class="cmp" style="width:100%;margin-top:8px">
-        <thead><tr><th style="text-align:left">행선지</th><th>₩10,000 환산</th><th>3개월</th><th>6개월</th><th>12개월</th><th>종합</th></tr></thead>
+
+    <details class="card" style="padding:14px;margin-bottom:14px">
+      <summary style="font-size:14px;font-weight:700;cursor:pointer">📋 상세 데이터 (펼치기)</summary>
+      <div class="ex-panel" style="margin-top:10px">
+      <table class="cmp" style="width:100%">
+        <thead><tr><th style="text-align:left">행선지</th><th>₩10,000 환산</th><th>3개월</th><th>6개월</th><th>12개월</th><th>종합</th><th>물가</th><th>하루 경비</th></tr></thead>
         <tbody id="travelTbody"></tbody>
       </table>
+      </div>
       <div style="font-size:12px;color:var(--muted);margin-top:10px">
         · 변화율 = 과거 대비 지금 10,000원으로 살 수 있는 현지통화의 증감(ECB 기준환율 · frankfurter.dev). 양수 = 여행비가 싸짐.<br>
-        · 실제 환전 수수료·현지 물가 변동은 반영하지 않은 순수 환율 관점입니다. 대만·베트남은 ECB 미고시로 제외.
+        · 대만·베트남은 ECB 미고시라 추이 없이 현재가(open.er-api.com)만 표시합니다.<br>
+        · 물가지수(서울=100)와 하루 경비(중급 여행 기준)는 공개 물가 자료 기반 추정치로 참고용입니다.<br>
+        · 실제 환전 수수료는 반영되지 않으며, 항공권·숙소 버튼은 외부 검색(스카이스캐너·아고다)으로 연결됩니다.
       </div>
-    </div>
+    </details>
   </div><!-- /tab-travel -->
 
   <div id="tab-news" style="display:none">
@@ -1609,12 +1649,14 @@
   const NEWS_PROXY_CUSTOM = "";
   const NEWS_PROXIES = [
     ...(NEWS_PROXY_CUSTOM ? [u => NEWS_PROXY_CUSTOM + encodeURIComponent(u)] : []),
-    u => "https://corsproxy.io/?url=" + encodeURIComponent(u),
+    u => "https://corsproxy.io/?url=" + encodeURIComponent(u) + "&_=" + Math.floor(Date.now() / 60000), // 분 단위 캐시버스터 — 프록시 캐시로 인한 구기사 방지
     u => "https://corsproxy.io/?url=" + encodeURIComponent(u) + "&_=" + Math.floor(Date.now() / 1000), // 1차 실패 시 재시도
   ];
   const NEWS_QUERIES = ["환율", "원/달러 환율", "엔화 환율", "환율 전망", "한국은행 기준금리"];
   let newsQuery = NEWS_QUERIES[0];
   let newsLoaded = false;
+  let newsLastAt = 0; // 마지막 성공 시각 — 5분 지나면 탭 재진입 시 자동 갱신
+  const NEWS_STALE_MS = 5 * 60 * 1000;
 
   function gnewsUrl(q) {
     return `https://news.google.com/rss/search?q=${encodeURIComponent(q + " when:7d")}&hl=ko&gl=KR&ceid=KR:ko`;
@@ -1707,6 +1749,7 @@
           date: it.querySelector("pubDate")?.textContent || "",
         };
       });
+      items.sort((a, b) => new Date(b.date) - new Date(a.date)); // 최신순 정렬 보장
       if (items.length) { newsCacheSet(query, items); return items; }
     } catch (e) { /* 다음 백업으로 */ }
     // 2) rss2json(JSON) 백업
@@ -1720,7 +1763,8 @@
   }
 
   function newsListHtml(items, stale) {
-    return (stale ? `<div class="news-loading" style="padding:6px 0">⟳ 최신 기사 불러오는 중… (이전 기사 표시)</div>` : "") +
+    const upd = stale ? "" : `<div class="news-loading" style="padding:6px 0">🕐 업데이트: ${new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit" })} · 탭을 열어두면 5분마다 자동 갱신</div>`;
+    return (stale ? `<div class="news-loading" style="padding:6px 0">⟳ 최신 기사 불러오는 중… (이전 기사 표시)</div>` : upd) +
       items.map(n => `
         <div class="news-item">
           <a href="${n.link}" target="_blank" rel="noopener noreferrer">${n.title}</a>
@@ -1738,11 +1782,20 @@
     if (items && items.length) {
       box.innerHTML = newsListHtml(items, false);
       newsLoaded = true;
+      newsLastAt = Date.now();
     } else if (!(cached && cached.items && cached.items.length)) {
       box.innerHTML = `<div class="news-loading">실시간 기사 로딩에 실패했습니다. ↻ 새로고침을 다시 누르거나, 아래 링크로 확인하세요.<br>
         <a href="${gnewsWebUrl(newsQuery)}" target="_blank" rel="noopener noreferrer">👉 Google 뉴스에서 "${newsQuery}" 직접 보기</a></div>`;
     }
   }
+  // 뉴스 자동 갱신: 뉴스 탭이 화면에 보이는 동안 5분 경과 시마다 재로딩
+  setInterval(() => {
+    try {
+      const el = document.getElementById("tab-news");
+      if (el && el.style.display !== "none" && document.visibilityState === "visible" &&
+          newsLoaded && Date.now() - newsLastAt > NEWS_STALE_MS) loadNews(true);
+    } catch (e) {}
+  }, 60 * 1000);
 
   /* ===== 출국제한국가 탭 (외교부 여행경보) ===== */
   // 외교부 발표 기준. 정세에 따라 수시 변동 → 출국 전 0404.go.kr 확인.
@@ -4911,7 +4964,7 @@
     try {
       if (t === "ex") renderExchange();
       if (t === "travel" && window.loadTravel) window.loadTravel();
-      if (t === "news" && !newsLoaded) loadNews();
+      if (t === "news" && (!newsLoaded || Date.now() - newsLastAt > NEWS_STALE_MS)) loadNews(true); // 5분 지나면 재진입 시 자동 갱신
       if (t === "ban") renderBan();
       if (t === "world") loadWorld();
       if (t === "chat") initChat();
@@ -5103,25 +5156,30 @@
 </script>
 
 <script>
-/* ===== 여행추천 탭: 환율 추이 기반 여행 가성비 (frankfurter.dev, 키 없음) ===== */
+/* ===== 여행추천 탭 v3: 환율 추이 + 물가·성수기·알림 (frankfurter.dev / open.er-api.com, 키 없음) ===== */
 (function () {
+  // col: 물가지수(서울=100 추정), daily: 중급 여행 하루 경비(USD 추정), best/peak: 월(1~12)
   const CURS = {
-    IDR: { name: "인도네시아", flag: "🇮🇩", fmt: v => Math.round(v).toLocaleString() },
-    PHP: { name: "필리핀", flag: "🇵🇭", fmt: v => v.toFixed(0) },
-    JPY: { name: "일본", flag: "🇯🇵", fmt: v => Math.round(v).toLocaleString() },
-    THB: { name: "태국", flag: "🇹🇭", fmt: v => v.toFixed(0) },
-    MYR: { name: "말레이시아", flag: "🇲🇾", fmt: v => v.toFixed(1) },
-    EUR: { name: "유럽(유로존)", flag: "🇪🇺", fmt: v => v.toFixed(2) },
-    SGD: { name: "싱가포르", flag: "🇸🇬", fmt: v => v.toFixed(2) },
-    GBP: { name: "영국", flag: "🇬🇧", fmt: v => v.toFixed(2) },
-    HKD: { name: "홍콩", flag: "🇭🇰", fmt: v => v.toFixed(1) },
-    USD: { name: "미국", flag: "🇺🇸", fmt: v => v.toFixed(2) },
-    AUD: { name: "호주", flag: "🇦🇺", fmt: v => v.toFixed(2) },
-    CNY: { name: "중국", flag: "🇨🇳", fmt: v => v.toFixed(1) },
+    IDR: { name: "인도네시아", flag: "🇮🇩", region: "동남아", cities: "발리 · 자카르타 · 롬복", season: "4~10월 건기가 최적", iata: "DPS", city: "Bali", col: 55, daily: 45, best: [4,5,6,7,8,9,10], peak: [7,8,12], fest: "3월 녜피(발리의 새해, 섬 전체 침묵의 날) · 8월 성수기 서핑 시즌", fmt: v => Math.round(v).toLocaleString() },
+    VND: { name: "베트남", flag: "🇻🇳", region: "동남아", cities: "다낭 · 나트랑 · 하노이", season: "다낭 2~8월 · 하노이 10~4월", iata: "DAD", city: "Da Nang", col: 50, daily: 40, best: [2,3,4,5,6,7,8], peak: [7,8], fest: "6월 다낭 국제 불꽃축제 · 1~2월 뗏(베트남 설) 연휴 주의", noTrend: true, fmt: v => Math.round(v).toLocaleString() },
+    PHP: { name: "필리핀", flag: "🇵🇭", region: "동남아", cities: "세부 · 보라카이 · 마닐라", season: "12~5월 건기 추천", iata: "CEB", city: "Cebu", col: 58, daily: 50, best: [1,2,3,4,5,12], peak: [1,4,12], fest: "1월 시눌룩 축제(세부 최대 축제) · 4월 성주간 혼잡", fmt: v => v.toFixed(0) },
+    THB: { name: "태국", flag: "🇹🇭", region: "동남아", cities: "방콕 · 치앙마이 · 푸켓", season: "11~2월 선선한 건기", iata: "BKK", city: "Bangkok", col: 60, daily: 55, best: [1,2,11,12], peak: [1,4,12], fest: "4월 송끄란 물축제 · 11월 러이끄라통(등불 축제)", fmt: v => v.toFixed(0) },
+    MYR: { name: "말레이시아", flag: "🇲🇾", region: "동남아", cities: "쿠알라룸푸르 · 코타키나발루", season: "연중 · 3~9월 무난", iata: "KUL", city: "Kuala Lumpur", col: 58, daily: 50, best: [3,4,5,6,7,8,9], peak: [6,7,8,12], fest: "연말 세일 시즌 · 6~8월 방학 성수기", fmt: v => v.toFixed(1) },
+    SGD: { name: "싱가포르", flag: "🇸🇬", region: "동남아", cities: "싱가포르", season: "연중 (2~4월 다소 건조)", iata: "SIN", city: "Singapore", col: 130, daily: 120, best: [2,3,4], peak: [6,7,12], fest: "9월 F1 나이트레이스(호텔 급등) · 6~7월 그레이트 세일", fmt: v => v.toFixed(2) },
+    JPY: { name: "일본", flag: "🇯🇵", region: "동북아", cities: "도쿄 · 오사카 · 후쿠오카", season: "봄 벚꽃 · 가을 단풍", iata: "TYO", city: "Tokyo", col: 100, daily: 90, best: [3,4,5,10,11], peak: [3,4,8,12], fest: "3말~4초 벚꽃(숙소 급등) · 7월 기온마츠리 · 8월 오봉 연휴", fmt: v => Math.round(v).toLocaleString() },
+    TWD: { name: "대만", flag: "🇹🇼", region: "동북아", cities: "타이베이 · 가오슝", season: "10~12월 · 3~4월", iata: "TPE", city: "Taipei", col: 80, daily: 70, best: [3,4,10,11,12], peak: [2], fest: "2월 등불축제(핑시 천등) · 여름 태풍 시즌 주의", noTrend: true, fmt: v => v.toFixed(1) },
+    HKD: { name: "홍콩", flag: "🇭🇰", region: "동북아", cities: "홍콩 · 마카오", season: "10~12월 최적", iata: "HKG", city: "Hong Kong", col: 115, daily: 110, best: [10,11,12], peak: [10,12], fest: "10월 중국 국경절 연휴 혼잡 · 연말 쇼핑 시즌", fmt: v => v.toFixed(1) },
+    CNY: { name: "중국", flag: "🇨🇳", region: "동북아", cities: "상하이 · 베이징 · 청두", season: "4~5월 · 9~10월", iata: "SHA", city: "Shanghai", col: 75, daily: 70, best: [4,5,9,10], peak: [2,10], fest: "춘절(1~2월)·국경절(10월 첫주)은 이동 피크 — 피할 것", fmt: v => v.toFixed(1) },
+    EUR: { name: "유럽(유로존)", flag: "🇪🇺", region: "유럽", cities: "파리 · 로마 · 바르셀로나", season: "5~6월 · 9~10월", iata: "PAR", city: "Paris", col: 125, daily: 130, best: [5,6,9,10], peak: [7,8,12], fest: "7~8월 극성수기 · 12월 크리스마스 마켓", fmt: v => v.toFixed(2) },
+    GBP: { name: "영국", flag: "🇬🇧", region: "유럽", cities: "런던 · 에든버러", season: "5~9월", iata: "LON", city: "London", col: 135, daily: 140, best: [5,6,7,8,9], peak: [7,8], fest: "8월 에든버러 페스티벌(숙소 조기 마감)", fmt: v => v.toFixed(2) },
+    USD: { name: "미국", flag: "🇺🇸", region: "미주·오세아니아", cities: "뉴욕 · LA · 괌·하와이", season: "도시별 상이", iata: "NYC", city: "New York", col: 150, daily: 160, best: [5,6,9,10], peak: [6,7,8,12], fest: "11말 블랙프라이데이 · 12월 홀리데이 시즌", fmt: v => v.toFixed(2) },
+    AUD: { name: "호주", flag: "🇦🇺", region: "미주·오세아니아", cities: "시드니 · 멜버른", season: "10~4월 (남반구 여름)", iata: "SYD", city: "Sydney", col: 125, daily: 130, best: [1,2,3,10,11,12], peak: [12,1], fest: "12/31 시드니 불꽃놀이 · 1월 호주 오픈", fmt: v => v.toFixed(2) },
   };
-  const SYMS = Object.keys(CURS).join(",");
+  const TREND_SYMS = Object.keys(CURS).filter((c) => !CURS[c].noTrend);
+  const SYMS = TREND_SYMS.join(",");
+  const REGIONS = ["전체", "동남아", "동북아", "유럽", "미주·오세아니아"];
   const $t = (id) => document.getElementById(id);
-  let loaded = false;
+  let loaded = false, ROWS = [], curRegion = "전체", curSort = "score", usdKrw = 1400;
 
   function iso(d) { return d.toISOString().slice(0, 10); }
   function monthsAgo(n) { const d = new Date(); d.setMonth(d.getMonth() - n); return iso(d); }
@@ -5130,73 +5188,255 @@
     if (!r.ok) throw new Error("fx " + dateStr);
     return r.json();
   }
+  async function fxNoTrend() { // 대만·베트남 현재가 (ECB 미고시)
+    try {
+      const r = await fetch("https://open.er-api.com/v6/latest/KRW");
+      const j = await r.json();
+      return { TWD: j.rates.TWD * 10000, VND: j.rates.VND * 10000 };
+    } catch (e) { return {}; }
+  }
   const pct = (now, past) => (now / past - 1) * 100;
   const fp = (v) => (v >= 0 ? "+" : "") + v.toFixed(1) + "%";
-  const cls = (v) => v >= 0 ? "var(--down)" : "var(--up)"; // 싸짐=파랑, 비싸짐=빨강 (원화강세=환율하락 관습)
+  const cls = (v) => v >= 0 ? "var(--down)" : "var(--up)";
+  const won = (v) => "₩" + Math.round(v).toLocaleString();
+  function grade(r) {
+    if (r.score == null) return { t: "현재가만", bg: "var(--border)", fg: "var(--text)" };
+    const s = r.score;
+    if (s >= 5) return { t: "🔥 초특가 환율", bg: "var(--down)", fg: "#fff" };
+    if (s >= 3) return { t: "👍 굿딜", bg: "var(--accent)", fg: "var(--on-accent)" };
+    if (s >= 0) return { t: "보통", bg: "var(--border)", fg: "var(--text)" };
+    return { t: "⚠️ 지금은 비추", bg: "var(--up)", fg: "#fff" };
+  }
+  function priceTag(col) {
+    if (col <= 65) return { t: "💸 물가 저렴", c: "var(--down)" };
+    if (col <= 105) return { t: "물가 보통", c: "var(--muted)" };
+    return { t: "물가 비쌈", c: "var(--up)" };
+  }
+  const flyUrl = (r) => `https://www.skyscanner.co.kr/transport/flights/icn/${r.iata.toLowerCase()}/`;
+  const stayUrl = (r) => `https://www.agoda.com/ko-kr/search?city=0&textToSearch=${encodeURIComponent(r.city)}`;
+  const btn = (href, label, primary) =>
+    `<a href="${href}" target="_blank" rel="noopener" style="flex:1;text-align:center;padding:7px 0;border-radius:8px;font-size:12.5px;font-weight:700;text-decoration:none;${primary ? "background:var(--accent);color:var(--on-accent)" : "border:1px solid var(--border);color:var(--text)"}">${label}</a>`;
+
+  /* ---- 알림 저장소 ---- */
+  const getAlerts = () => { try { return JSON.parse(localStorage.getItem("travelAlerts") || "[]"); } catch (e) { return []; } };
+  const saveAlerts = (a) => { try { localStorage.setItem("travelAlerts", JSON.stringify(a)); } catch (e) {} };
+
+  function heroHtml(b) {
+    const g = grade(b), p = priceTag(b.col);
+    return `<div class="card" style="padding:16px;background:linear-gradient(135deg,var(--card),var(--card-hover));border:1.5px solid var(--accent)">
+      <div style="font-size:12px;font-weight:700;color:var(--accent-text);letter-spacing:.5px">이번 주 추천 여행지</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:6px;flex-wrap:wrap">
+        <span style="font-size:34px">${b.flag}</span>
+        <div style="flex:1;min-width:150px">
+          <div style="font-size:20px;font-weight:800">${b.name}</div>
+          <div style="font-size:12.5px;color:var(--muted)">${b.cities} · ${b.season}</div>
+        </div>
+        <span style="background:${g.bg};color:${g.fg};padding:5px 10px;border-radius:999px;font-size:12.5px;font-weight:700">${g.t}</span>
+      </div>
+      <div style="margin-top:10px;font-size:13.5px;line-height:1.6">원화 구매력 종합 <b style="color:${cls(b.score)}">${fp(b.score)}</b> — 1년 전 같은 예산보다 <b>${fp(b.y1)}</b> 더 쓸 수 있습니다. ₩10,000 → <b>${b.fmt(b.now)} ${b.c}</b> · <span style="color:${p.c};font-weight:600">${p.t}</span> · 하루 약 <b>${won(b.daily * usdKrw)}</b></div>
+      <div style="display:flex;gap:8px;margin-top:12px;max-width:340px">${btn(flyUrl(b), "✈️ 항공권 보기", true)}${btn(stayUrl(b), "🏨 숙소 보기", false)}</div>
+    </div>`;
+  }
+
+  function cardHtml(r, rank) {
+    const g = grade(r), p = priceTag(r.col);
+    const trendLine = r.score == null
+      ? `<div style="font-size:11.5px;color:var(--muted)">ECB 미고시 통화 — 추이 없이 현재가만 표시</div>`
+      : `<div style="font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums">3개월 <span style="color:${cls(r.m3)}">${fp(r.m3)}</span> · 6개월 <span style="color:${cls(r.m6)}">${fp(r.m6)}</span> · 1년 <span style="color:${cls(r.y1)}">${fp(r.y1)}</span> · 환율 가성비 ${rank}위</div>`;
+    return `<div class="card" style="padding:14px;display:flex;flex-direction:column;gap:8px" data-region="${r.region}">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span style="font-size:24px">${r.flag}</span>
+        <div style="flex:1"><b style="font-size:15px">${r.name}</b>
+          <span style="font-size:11px;color:var(--muted);margin-left:4px">${r.region}</span></div>
+        <span style="font-size:11.5px;font-weight:700;background:${g.bg};color:${g.fg};padding:3px 8px;border-radius:999px">${g.t}</span>
+      </div>
+      <div style="font-size:12px;color:var(--muted)">${r.cities}<br>🗓️ ${r.season}</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <span style="font-size:12.5px">₩10,000 → <b style="font-variant-numeric:tabular-nums">${r.fmt(r.now)}</b> ${r.c}</span>
+        ${r.score == null ? "" : `<b style="font-size:15px;color:${cls(r.score)}">${fp(r.score)}</b>`}
+      </div>
+      <div style="font-size:12px"><span style="color:${p.c};font-weight:600">${p.t}</span> <span style="color:var(--muted)">(서울=100 대비 ${r.col})</span> · 하루 약 <b>${won(r.daily * usdKrw)}</b></div>
+      ${trendLine}
+      <div style="display:flex;gap:6px;margin-top:2px">${btn(flyUrl(r), "✈️ 항공권", true)}${btn(stayUrl(r), "🏨 숙소", false)}</div>
+    </div>`;
+  }
+
+  function sortedRows() {
+    const list = [...ROWS];
+    if (curSort === "daily") list.sort((a, b) => a.daily - b.daily);
+    else list.sort((a, b) => (b.score ?? -99) - (a.score ?? -99));
+    return list;
+  }
+  function renderCards() {
+    const scoreRank = new Map(ROWS.filter((r) => r.score != null).sort((a, b) => b.score - a.score).map((r, i) => [r.c, i + 1]));
+    const list = sortedRows().filter((r) => curRegion === "전체" || r.region === curRegion);
+    $t("travelCards").innerHTML = list.map((r) => cardHtml(r, scoreRank.get(r.c) || "-")).join("") ||
+      `<div style="font-size:13px;color:var(--muted)">해당 지역 데이터가 없습니다.</div>`;
+  }
+  function chip(label, on, attr) {
+    return `<button ${attr} style="padding:6px 12px;border-radius:999px;font-size:12.5px;font-weight:600;cursor:pointer;border:1px solid ${on ? "var(--accent)" : "var(--border)"};background:${on ? "var(--accent)" : "var(--card)"};color:${on ? "var(--on-accent)" : "var(--text)"}">${label}</button>`;
+  }
+  function renderFilters() {
+    $t("travelFilters").innerHTML =
+      `<span style="font-size:12.5px;color:var(--muted)">지역</span>` +
+      REGIONS.map((rg) => chip(rg, rg === curRegion, `data-rg="${rg}"`)).join("") +
+      `<span style="font-size:12.5px;color:var(--muted);margin-left:8px">정렬</span>` +
+      chip("환율 가성비순", curSort === "score", `data-st="score"`) +
+      chip("하루 경비 저렴순", curSort === "daily", `data-st="daily"`);
+    $t("travelFilters").querySelectorAll("button").forEach((b) => {
+      b.onclick = () => {
+        if (b.dataset.rg) curRegion = b.dataset.rg;
+        if (b.dataset.st) curSort = b.dataset.st;
+        renderFilters(); renderCards();
+      };
+    });
+  }
+  function renderBudget() {
+    const man = Math.max(1, parseFloat($t("travelBudget").value) || 0);
+    const krw = man * 10000;
+    $t("travelBudgetOut").innerHTML = sortedRows().slice(0, 6).map((r) =>
+      `<span style="border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12.5px;background:var(--card)">${r.flag} <b style="font-variant-numeric:tabular-nums">${(r.now * krw / 10000).toLocaleString(undefined, { maximumFractionDigits: r.now < 100 ? 1 : 0 })}</b> ${r.c} <span style="color:var(--muted)">(약 ${Math.max(1, Math.round(krw / (r.daily * usdKrw)))}일)</span></span>`).join("");
+  }
+
+  /* ---- 성수기 캘린더 ---- */
+  function renderSeason() {
+    const nowM = new Date().getMonth() + 1;
+    const head = `<tr><th style="text-align:left;padding:5px 8px;font-size:12px">행선지</th>` +
+      Array.from({ length: 12 }, (_, i) => `<th style="padding:5px 3px;font-size:11px;${i + 1 === nowM ? "color:var(--accent-text)" : "color:var(--muted)"}">${i + 1}월</th>`).join("") + `</tr>`;
+    const body = ROWS.map((r) => `<tr>
+      <td style="padding:5px 8px;font-size:12.5px;font-weight:600;white-space:nowrap">${r.flag} ${r.name}</td>` +
+      Array.from({ length: 12 }, (_, i) => {
+        const m = i + 1, isB = r.best.includes(m), isP = r.peak.includes(m);
+        return `<td style="padding:4px 3px;text-align:center;${m === nowM ? "outline:1.5px solid var(--accent-text);outline-offset:-1.5px;" : ""}">
+          <div style="width:20px;height:14px;margin:0 auto;border-radius:3px;background:${isB ? "var(--accent)" : "var(--border)"};position:relative">${isP ? `<span style="position:absolute;top:-5px;right:-3px;color:var(--up);font-size:9px">●</span>` : ""}</div></td>`;
+      }).join("") + `</tr>`).join("");
+    $t("travelSeason").innerHTML = `<table style="border-collapse:collapse;min-width:560px">${head}${body}</table>`;
+    const top = sortedRows().slice(0, 4);
+    $t("travelFest").innerHTML = top.map((r) => `<b>${r.flag} ${r.name}</b> — ${r.fest}`).join("<br>");
+  }
+
+  /* ---- 환율 목표 알림 ---- */
+  function renderAlerts() {
+    const alerts = getAlerts();
+    const sel = $t("travelAlertCur");
+    if (!sel.options.length) sel.innerHTML = ROWS.map((r) => `<option value="${r.c}">${r.flag} ${r.name} (${r.c})</option>`).join("");
+    const cur = ROWS.find((r) => r.c === sel.value) || ROWS[0];
+    if (cur && !$t("travelAlertTarget").value) $t("travelAlertTarget").placeholder = `현재 ${cur.fmt(cur.now)}`;
+    const hits = alerts.filter((a) => a.hit);
+    $t("travelAlertBanner").innerHTML = hits.length
+      ? `<div style="background:var(--accent);color:var(--on-accent);border-radius:8px;padding:8px 12px;font-size:13px;font-weight:700;margin-bottom:8px">🎯 목표 도달! ${hits.map((a) => `${CURS[a.cur].flag}${CURS[a.cur].name} ₩10,000→${Math.round(a.nowVal).toLocaleString()} (목표 ${Math.round(a.target).toLocaleString()})`).join(" · ")}</div>` : "";
+    $t("travelAlertList").innerHTML = alerts.length ? alerts.map((a, i) => {
+      const r = ROWS.find((x) => x.c === a.cur);
+      return `<div style="display:flex;align-items:center;gap:8px;font-size:12.5px;border:1px solid var(--border);border-radius:8px;padding:7px 10px">
+        <span style="flex:1">${CURS[a.cur].flag} ${CURS[a.cur].name} — ₩10,000 환산 <b>${Math.round(a.target).toLocaleString()}</b> 이상이면 알림 ${a.hit ? '<b style="color:var(--accent-text)">✓ 도달</b>' : `<span style="color:var(--muted)">(현재 ${r ? r.fmt(r.now) : "-"})</span>`}</span>
+        <button data-del="${i}" style="border:none;background:none;color:var(--muted);cursor:pointer;font-size:14px">✕</button></div>`;
+    }).join("") : `<div style="font-size:12px;color:var(--muted)">등록된 알림이 없습니다. 예: 일본 선택 후 1,200 입력 → 엔화가 ₩10,000당 1,200엔 이상이 되면 알려드립니다.</div>`;
+    $t("travelAlertList").querySelectorAll("[data-del]").forEach((b) => {
+      b.onclick = () => { const a = getAlerts(); a.splice(+b.dataset.del, 1); saveAlerts(a); renderAlerts(); };
+    });
+  }
+  function evalAlerts() {
+    const alerts = getAlerts();
+    let changed = false, newHit = false;
+    alerts.forEach((a) => {
+      const r = ROWS.find((x) => x.c === a.cur);
+      if (!r) return;
+      const hit = r.now >= a.target;
+      if (hit && !a.hit) newHit = true;
+      if (hit !== a.hit) { a.hit = hit; changed = true; }
+      a.nowVal = r.now;
+    });
+    if (changed) saveAlerts(alerts);
+    if (newHit) {
+      try {
+        if ("Notification" in window && Notification.permission === "granted") {
+          new Notification("환율 목표 도달! ✈️", { body: alerts.filter((a) => a.hit).map((a) => `${CURS[a.cur].name}: ₩10,000 → ${Math.round(a.nowVal).toLocaleString()} ${a.cur}`).join(", ") });
+        }
+      } catch (e) {}
+      const tb = $t("tabBtnTravel");
+      if (tb && !tb.querySelector(".tdot")) tb.insertAdjacentHTML("beforeend", `<span class="tdot" style="position:absolute;top:4px;right:14px;width:7px;height:7px;border-radius:50%;background:var(--up)"></span>`), tb.style.position = "relative";
+    }
+  }
+  function wireAlertForm() {
+    $t("travelAlertAdd").onclick = () => {
+      const cur = $t("travelAlertCur").value, target = parseFloat($t("travelAlertTarget").value);
+      if (!cur || !target || target <= 0) return;
+      const a = getAlerts(); a.push({ cur, target, hit: false }); saveAlerts(a);
+      $t("travelAlertTarget").value = "";
+      try { if ("Notification" in window && Notification.permission === "default") Notification.requestPermission(); } catch (e) {}
+      evalAlerts(); renderAlerts();
+    };
+    $t("travelAlertCur").onchange = () => { $t("travelAlertTarget").value = ""; renderAlerts(); };
+  }
 
   window.loadTravel = async function (force) {
     if (loaded && !force) return;
     const status = $t("travelStatus");
     try {
-      // 1시간 캐시
       let data = null;
       try {
         const c = JSON.parse(localStorage.getItem("travelFx") || "null");
-        if (c && Date.now() - c.at < 3600e3) data = c.data;
+        if (c && Date.now() - c.at < 3600e3 && c.v === 3) data = c.data;
       } catch (e) {}
       if (!data) {
-        const [now, m3, m6, y1] = await Promise.all([fx("latest"), fx(monthsAgo(3)), fx(monthsAgo(6)), fx(monthsAgo(12))]);
-        data = { now, m3, m6, y1 };
-        try { localStorage.setItem("travelFx", JSON.stringify({ at: Date.now(), data })); } catch (e) {}
+        const [now, m3, m6, y1, extra] = await Promise.all([fx("latest"), fx(monthsAgo(3)), fx(monthsAgo(6)), fx(monthsAgo(12)), fxNoTrend()]);
+        data = { now, m3, m6, y1, extra };
+        try { localStorage.setItem("travelFx", JSON.stringify({ at: Date.now(), v: 3, data })); } catch (e) {}
       }
-      const rows = Object.keys(CURS).map((c) => {
+      usdKrw = data.now.rates.USD ? 10000 / data.now.rates.USD : 1400;
+      ROWS = Object.keys(CURS).map((c) => {
+        const meta = CURS[c];
+        if (meta.noTrend) {
+          const n = data.extra && data.extra[c];
+          return n ? { c, ...meta, now: n, m3: null, m6: null, y1: null, score: null } : null;
+        }
         const n = data.now.rates[c], a3 = pct(n, data.m3.rates[c]), a6 = pct(n, data.m6.rates[c]), a12 = pct(n, data.y1.rates[c]);
-        return { c, ...CURS[c], now: n, m3: a3, m6: a6, y1: a12, score: (a3 + a6 + a12) / 3 };
-      }).sort((a, b) => b.score - a.score);
+        return { c, ...meta, now: n, m3: a3, m6: a6, y1: a12, score: (a3 + a6 + a12) / 3 };
+      }).filter(Boolean);
 
-      // 요약 카드
-      const best = rows[0], second = rows[1], worst = rows[rows.length - 1];
-      $t("travelTop").style.display = "";
-      $t("travelTop").innerHTML =
-        `<div class="tip"><h4>🏆 지금 최고의 가성비</h4><p><b>${best.flag} ${best.name}</b> — 종합 <b style="color:${cls(best.score)}">${fp(best.score)}</b>. 1년 전보다 같은 돈으로 ${fp(best.y1)} 더 쓸 수 있습니다.</p></div>` +
-        `<div class="tip"><h4>🥈 차선책</h4><p><b>${second.flag} ${second.name}</b> — 종합 <b style="color:${cls(second.score)}">${fp(second.score)}</b>.</p></div>` +
-        `<div class="tip"><h4>⚠️ 지금은 비추</h4><p><b>${worst.flag} ${worst.name}</b> — 종합 <b style="color:${cls(worst.score)}">${fp(worst.score)}</b>. 원화 구매력이 밀리는 중입니다.</p></div>`;
+      const trendRows = ROWS.filter((r) => r.score != null).sort((a, b) => b.score - a.score);
+      $t("travelHero").innerHTML = heroHtml(trendRows[0]);
+      renderFilters(); renderCards(); renderBudget(); renderSeason();
+      evalAlerts(); renderAlerts(); wireAlertForm();
+      $t("travelBudget").oninput = renderBudget;
 
-      // 랭킹 바
-      const maxAbs = Math.max(...rows.map((r) => Math.abs(r.score))) || 1;
-      $t("travelBars").innerHTML = rows.map((r) => {
+      const maxAbs = Math.max(...trendRows.map((r) => Math.abs(r.score))) || 1;
+      $t("travelBars").innerHTML = trendRows.map((r) => {
         const w = Math.max(2, Math.abs(r.score) / maxAbs * 100);
         return `<div style="display:flex;align-items:center;gap:8px;margin:6px 0" title="3개월 ${fp(r.m3)} · 6개월 ${fp(r.m6)} · 12개월 ${fp(r.y1)}">
           <div style="width:110px;flex:none;font-size:13px;font-weight:600;text-align:right">${r.flag} ${r.name}</div>
-          <div style="flex:1;background:transparent;position:relative;height:16px">
+          <div style="flex:1;position:relative;height:16px">
             <div style="position:absolute;left:0;top:1px;height:14px;width:${w}%;background:${cls(r.score)};border-radius:0 4px 4px 0;opacity:.9"></div>
           </div>
           <div style="width:58px;flex:none;font-size:12.5px;font-weight:700;color:${cls(r.score)};font-variant-numeric:tabular-nums">${fp(r.score)}</div>
         </div>`;
       }).join("");
 
-      // 자동 코멘트
-      const cheap = rows.filter((r) => r.score >= 3), exp = rows.filter((r) => r.score < 0);
-      const recentOnly = rows.filter((r) => r.m3 >= 3 && r.y1 < 0 && r.score < 3);
+      const cheap = trendRows.filter((r) => r.score >= 3), exp = trendRows.filter((r) => r.score < 0);
+      const recentOnly = trendRows.filter((r) => r.m3 >= 3 && r.y1 < 0 && r.score < 3);
+      const cheapPrice = ROWS.filter((r) => r.col <= 65 && (r.score == null || r.score >= 0));
       let html = "";
       if (cheap.length) html += `<p style="margin-bottom:8px"><b>${cheap.map((r) => r.flag + r.name).join(" · ")}</b> — 세 기간 평균 +3% 이상으로 지금이 뚜렷한 저가 구간입니다.</p>`;
-      if (recentOnly.length) html += `<p style="margin-bottom:8px"><b>${recentOnly.map((r) => r.flag + r.name).join(" · ")}</b> — 최근 3개월에만 싸진 곳입니다. 1년 전 대비로는 아직 비싸니 추세가 이어지는지 지켜볼 가치가 있습니다.</p>`;
+      if (recentOnly.length) html += `<p style="margin-bottom:8px"><b>${recentOnly.map((r) => r.flag + r.name).join(" · ")}</b> — 최근 3개월에만 싸진 곳입니다. 1년 전 대비로는 아직 비싸니 추세 확인이 필요합니다.</p>`;
+      if (cheapPrice.length) html += `<p style="margin-bottom:8px"><b>${cheapPrice.map((r) => r.flag + r.name).join(" · ")}</b> — 환율과 별개로 현지 물가 자체가 저렴해(서울 대비 65 이하) 총경비 기준 부담이 가장 적은 곳입니다.</p>`;
       if (exp.length) html += `<p><b>${exp.map((r) => r.flag + r.name).join(" · ")}</b> — 원화 구매력이 하락해 지금 가면 손해 보는 행선지입니다.</p>`;
       $t("travelComment").innerHTML = html || "<p>뚜렷한 우위 지역이 없는 균형 구간입니다.</p>";
 
-      // 표
-      $t("travelTbody").innerHTML = rows.map((r) => {
-        const td = (v) => `<td style="color:${cls(v)};font-variant-numeric:tabular-nums">${fp(v)}</td>`;
-        return `<tr><td style="text-align:left">${r.flag} ${r.name} (${r.c})</td><td style="font-variant-numeric:tabular-nums">${r.fmt(r.now)}</td>${td(r.m3)}${td(r.m6)}${td(r.y1)}<td style="font-weight:700;color:${cls(r.score)}">${fp(r.score)}</td></tr>`;
+      $t("travelTbody").innerHTML = sortedRows().map((r) => {
+        const td = (v) => v == null ? `<td style="color:var(--muted)">—</td>` : `<td style="color:${cls(v)};font-variant-numeric:tabular-nums">${fp(v)}</td>`;
+        return `<tr><td style="text-align:left">${r.flag} ${r.name} (${r.c})</td><td style="font-variant-numeric:tabular-nums">${r.fmt(r.now)}</td>${td(r.m3)}${td(r.m6)}${td(r.y1)}<td style="font-weight:700;color:${r.score == null ? "var(--muted)" : cls(r.score)}">${r.score == null ? "—" : fp(r.score)}</td><td style="font-variant-numeric:tabular-nums">${r.col}</td><td style="font-variant-numeric:tabular-nums">${won(r.daily * usdKrw)}</td></tr>`;
       }).join("");
 
-      status.textContent = `기준: 최신 ECB 고시 ${data.now.date} · 비교 시점 ${data.m3.date} / ${data.m6.date} / ${data.y1.date} · 1시간마다 자동 갱신`;
+      status.textContent = `기준: 최신 ECB 고시 ${data.now.date} · 비교 ${data.m3.date} / ${data.m6.date} / ${data.y1.date} · 대만·베트남 현재가 open.er-api · 1시간마다 자동 갱신`;
       loaded = true;
     } catch (err) {
       console.warn("여행추천 로드 오류:", err);
       status.textContent = "환율 데이터를 불러오지 못했습니다. 잠시 후 여행추천 탭을 다시 열어주세요.";
     }
   };
+
+  // 접속 시 백그라운드 알림 체크 (알림이 등록돼 있을 때만, 5초 후)
+  setTimeout(() => { if (getAlerts().length && !loaded) window.loadTravel(); }, 5000);
 })();
 </script>
 </body>
